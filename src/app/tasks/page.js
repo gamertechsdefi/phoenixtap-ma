@@ -1,7 +1,7 @@
 import { React } from "react";
-import Footer from "@/components/footer";
-
 import TaskCard from "@/components/cards/tasksCard";
+
+import Link from "next/link";
 
 export default function Tasks() {
 
@@ -102,7 +102,14 @@ export default function Tasks() {
 
             </main>
 
-           <Footer />
+            <footer className="flex sticky bottom-0">
+                <div className="flex flex-row justify-between">
+                    <Link href="/">Home</Link>
+                    <Link href="/tasks">Home</Link>
+                    <Link href="/friend">Home</Link>
+                    <Link href="/claim">Home</Link>
+                </div>
+            </footer>
         </div>
 
 

@@ -1,5 +1,6 @@
-import Footer from "@/components/footer";
 import { React } from "react";
+
+import Link from "next/link";
 
 
 const Friends = () => {
@@ -48,7 +49,14 @@ const Friends = () => {
             </div>
         </main>
 
-        <Footer />
+        <footer className="flex sticky bottom-0">
+                <div className="flex flex-row justify-between">
+                    <Link href="/">Home</Link>
+                    <Link href="/tasks">Home</Link>
+                    <Link href="/friend">Home</Link>
+                    <Link href="/claim">Home</Link>
+                </div>
+            </footer>
         </div>
     );
 }
