@@ -71,10 +71,10 @@ export default function Home() {
 
       <footer className="sticky bottom-0 w-full bg-white border-t">
         <nav className="flex justify-between p-4">
-          <Link href="/" className="text-blue-600">Home</Link>
-          <Link href="/tasks" className="text-blue-600">Tasks</Link>
-          <Link href="/friend" className="text-blue-600">Friend</Link>
-          <Link href="/claim" className="text-blue-600">Claim</Link>
+          <Link href="/" className="text-orange-600">Home</Link>
+          <Link href="/tasks" className="text-orange-600">Tasks</Link>
+          <Link href="/friend" className="text-orange-600">Friend</Link>
+          <Link href="/claim" className="text-orange-600">Claim</Link>
         </nav>
       </footer>
     </div>

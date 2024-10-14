@@ -102,12 +102,12 @@ export default function Tasks() {
 
             </main>
 
-            <footer className="flex sticky bottom-0">
+            <footer className="flex sticky bottom-0 w-full">
                 <div className="flex flex-row justify-between">
                     <Link href="/">Home</Link>
-                    <Link href="/tasks">Home</Link>
-                    <Link href="/friend">Home</Link>
-                    <Link href="/claim">Home</Link>
+                    <Link href="/tasks">Tasks</Link>
+                    <Link href="/friend">Friends</Link>
+                    <Link href="/claim">Claim</Link>
                 </div>
             </footer>
         </div>
