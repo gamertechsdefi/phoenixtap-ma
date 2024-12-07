@@ -1,26 +1,42 @@
-// pages/tasks.js
 'use client'
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useXPManager } from '@/api/firebase/fireFunctions';
 import TaskList from '@/components/TaskLink';
 import WebApp from '@twa-dev/sdk';
 
 export default function TaskPage() {
-  const userId = WebApp.initDataUnsafe?.user?.id;
+  const [userId, setUserId] = useState(null);
+  const [twaInstance, setTwaInstance] = useState(null);
   const { totalXP, isLoading, updateXP } = useXPManager(userId);
   const [activeTab, setActiveTab] = useState('daily-login');
 
+  // Initialize WebApp and get user ID
+  useEffect(() => {
+    try {
+      const webApp = WebApp;
+      setTwaInstance(webApp);
+      if (webApp.initDataUnsafe?.user?.id) {
+        setUserId(webApp.initDataUnsafe.user.id);
+      }
+    } catch (error) {
+      console.error('Error initializing WebApp:', error);
+    }
+  }, []);
+
   const handleTaskComplete = async (task) => {
-    const success = await updateXP(task.xpReward);
-    if (success && window.Telegram?.WebApp) {
-      window.Telegram.WebApp.showPopup({
-        title: 'Task Completed!',
-        message: `You earned ${task.xpReward} XP! Total XP: ${totalXP + task.xpReward}`,
-        buttons: [{
-          type: 'ok'
-        }]
-      });
+    try {
+      const success = await updateXP(task.xpReward);
+      if (success && typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        window.Telegram.WebApp.showPopup({
+          title: 'Task Completed!',
+          buttons: [{
+            type: 'ok'
+          }]
+        });
+      }
+    } catch (error) {
+      console.error('Error completing task:', error);
     }
   };
 
@@ -36,7 +52,9 @@ export default function TaskPage() {
     <div className="max-w-4xl mx-auto p-4">
       {/* XP Display */}
       <div className="bg-white rounded-lg p-4 shadow-md mb-6">
-        <h2 className="text-orange-600 font-bold">Total XP: {totalXP}</h2>
+        <h2 className="text-orange-600 font-bold">
+          Total XP: {totalXP || 0}
+        </h2>
       </div>
 
       {/* Tab Navigation */}
@@ -57,12 +75,14 @@ export default function TaskPage() {
       </div>
 
       {/* Task Lists */}
-      <div className="">
-        <TaskList
-          category={activeTab}
-          onTaskComplete={handleTaskComplete}
-        />
-      </div>
+      {userId && (
+        <div className="">
+          <TaskList
+            category={activeTab}
+            onTaskComplete={handleTaskComplete}
+          />
+        </div>
+      )}
     </div>
   );
 }

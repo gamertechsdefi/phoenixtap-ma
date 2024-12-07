@@ -6,16 +6,31 @@ import { referralSystem } from '@/api/firebase/fireFunctions';
 import { motion } from 'framer-motion';
 import Footer from '@/components/Footer';
 
-const BOT_USERNAME = 'TGgametestminibot'; // Updated bot username
+const BOT_USERNAME = 'TGgametestminibot';
 
 export default function ReferralPage() {
     const [referralStats, setReferralStats] = useState(null);
     const [loading, setLoading] = useState(true);
     const [copied, setCopied] = useState(false);
+    const [userId, setUserId] = useState(null);
+    const [twaInstance, setTwaInstance] = useState(null);
 
+    // Initialize WebApp
+    useEffect(() => {
+        try {
+            const webApp = WebApp;
+            setTwaInstance(webApp);
+            if (webApp.initDataUnsafe?.user?.id) {
+                setUserId(webApp.initDataUnsafe.user.id);
+            }
+        } catch (error) {
+            console.error('Error initializing WebApp:', error);
+        }
+    }, []);
+
+    // Handle referral initialization after userId is set
     useEffect(() => {
         const initializeReferral = async () => {
-            const userId = WebApp.initDataUnsafe?.user?.id;
             if (!userId) return;
 
             try {
@@ -29,14 +44,16 @@ export default function ReferralPage() {
             }
         };
 
-        initializeReferral();
-    }, []);
+        if (userId) {
+            initializeReferral();
+        }
+    }, [userId]);
 
     const handleCopy = async () => {
-        if (!referralStats?.referralCode) return;
+        if (!referralStats?.referralCode || typeof navigator === 'undefined') return;
 
         try {
-            const shareText = `Join Phoenix App and earn rewards!\n\nUse my referral code: ${referralStats.referralCode}\n\nJoin here: https://t.me/TGgametestminibot?start=${referralStats.referralCode}`;
+            const shareText = `Join Phoenix App and earn rewards!\n\nUse my referral code: ${referralStats.referralCode}\n\nJoin here: https://t.me/${BOT_USERNAME}?start=${referralStats.referralCode}`;
             await navigator.clipboard.writeText(shareText);
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
@@ -46,11 +63,15 @@ export default function ReferralPage() {
     };
 
     const handleShare = () => {
-        if (!referralStats?.referralCode) return;
+        if (!referralStats?.referralCode || !twaInstance) return;
 
-        const shareText = `Join Phoenix App and earn rewards!\n\nUse my referral code: ${referralStats.referralCode}\n\nJoin here: https://t.me/TGgametestminibot?start=${referralStats.referralCode}`;
+        const shareText = `Join Phoenix App and earn rewards!\n\nUse my referral code: ${referralStats.referralCode}\n\nJoin here: https://t.me/${BOT_USERNAME}?start=${referralStats.referralCode}`;
 
-        WebApp.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(shareText)}`);
+        try {
+            twaInstance.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(shareText)}`);
+        } catch (error) {
+            console.error('Error sharing:', error);
+        }
     };
 
     if (loading) {
@@ -88,7 +109,7 @@ export default function ReferralPage() {
                     <div className="mt-2 text-sm text-gray-400 break-all">
                         Your referral link:
                         <span className="text-orange-400 ml-1">
-                            https://t.me/TGgametestminibot?start={referralStats?.referralCode}
+                            https://t.me/{BOT_USERNAME}?start={referralStats?.referralCode}
                         </span>
                     </div>
                 </motion.div>
