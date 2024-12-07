@@ -93,14 +93,16 @@ export default function Game() {
     };
   }, [userId, twaInstance]);
 
-  // Rest of your component code remains the same...
+  // Handle tap animation
   const triggerTapAnimation = useCallback(() => {
     setTapAnimation(true);
     const timer = setTimeout(() => setTapAnimation(false), 150);
     return () => clearTimeout(timer);
   }, []);
 
+  // Handle tap action
   const onTap = useCallback(async () => {
+    // Guard clauses
     if (isTapping || isLoading || currentTaps <= 0) {
       return;
     }
@@ -116,11 +118,15 @@ export default function Game() {
     } catch (error) {
       console.error('Tap error:', error);
     } finally {
+      // Add small delay to prevent spam clicking
       setTimeout(() => setIsTapping(false), 50);
     }
   }, [isTapping, isLoading, currentTaps, handleTap, triggerTapAnimation]);
 
+  // Calculate button disabled state
   const isButtonDisabled = isTapping || isLoading || currentTaps <= 0;
+
+  // Calculate progress percentage
   const progressPercentage = (currentTaps / 2500) * 100;
 
   // Loading state
@@ -143,10 +149,67 @@ export default function Game() {
     );
   }
 
-  // Rest of your JSX remains the same...
+  // Main UI
   return (
     <div className='min-h-screen flex flex-col'>
-      {/* Your existing JSX */}
+      <main className='flex-grow'>
+        <UserProfile />
+
+        <div className='flex flex-col items-center px-4 max-w-md mx-auto'>
+          {/* Total Taps Counter */}
+          <div className='text-center mb-6'>
+            <h2 className='text-lg font-medium text-gray-300'>Total Taps</h2>
+            <h1 className='text-4xl font-bold text-[#f9f9f9]'>{totalTaps || 0}</h1>
+          </div>
+
+          {/* Tap Button */}
+          <button
+            onClick={onTap}
+            disabled={isButtonDisabled}
+            className={`relative transform transition-all duration-150 select-none
+              ${tapAnimation ? 'scale-95' : 'scale-100'}
+              ${isButtonDisabled ? 'opacity-50 cursor-not-allowed' : 'opacity-100 cursor-pointer hover:scale-105'}
+              active:scale-95`}
+          >
+            <Image
+              src={tapImage}
+              width={250}
+              height={250}
+              alt="Tap here"
+              className="drop-shadow-lg pointer-events-none"
+              priority
+              draggable={false}
+            />
+          </button>
+
+          {/* Current Taps Progress */}
+          <div className="mt-8 w-full">
+            <div className="flex justify-between text-sm text-gray-600 mb-2">
+              <span>Available Taps</span>
+              <span>{currentTaps || 0}/2500</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+              <div 
+                className="bg-orange-500 h-2.5 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${progressPercentage}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Status Messages */}
+          {currentTaps === 0 && (
+            <div className="text-orange-500 mt-4 text-sm font-medium animate-pulse">
+              Recharging taps...
+            </div>
+          )}
+          {currentTaps === 2500 && (
+            <div className="text-green-500 mt-4 text-sm font-medium">
+              Taps fully charged!
+            </div>
+          )}
+        </div>
+      </main>
+      <Footer />
     </div>
   );
 }
