@@ -13,7 +13,7 @@ export default function TaskPage() {
 
   const handleTaskComplete = async (task) => {
     const success = await updateXP(task.xpReward);
-    if (success) {
+    if (success && window.Telegram?.WebApp) {
       window.Telegram.WebApp.showPopup({
         title: 'Task Completed!',
         message: `You earned ${task.xpReward} XP! Total XP: ${totalXP + task.xpReward}`,
