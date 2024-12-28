@@ -690,180 +690,141 @@ export const referralSystem = {
   }
 };
 
-
-const calculateBoostCost = (boostCount) => {
- if (boostCount === 0) return 1000;
- return 1000 * Math.pow(2, boostCount);
+/**
+ * Calculate the cost of a boost based on how many times it's been used
+ */
+export const calculateBoostCost = (boostCount) => {
+  if (boostCount === 0) return 1000;
+  return 1000 * Math.pow(2, boostCount);
 };
 
-const applyCurrentTapBoost = async (userId) => {
- if (!userId) return { success: false, message: 'No user ID provided' };
+/**
+ * Fill current taps to maximum capacity
+ */
+export const applyCurrentTapBoost = async (userId) => {
+  try {
+    if (!userId) {
+      return { success: false, message: 'No user ID provided' };
+    }
 
- try {
-   const userRef = doc(db, 'users', userId);
-   const userSnap = await getDoc(userRef);
-   
-   if (!userSnap.exists()) {
-     return { success: false, message: 'User not found' };
-   }
+    const userRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { success: false, message: 'User not found' };
+    }
 
-   const userData = userSnap.data();
-   const totalTaps = userData.stats?.totalTaps || 0;
-   const currentTapBoostCount = userData.stats?.currentTapBoostCount || 0;
-   const maxTaps = userData.energy?.max || 2500;
-   const currentTaps = userData.stats?.currentTaps || 0;
-   
-   const boostCost = calculateBoostCost(currentTapBoostCount);
+    const userData = userSnap.data();
+    const totalTaps = userData.stats?.totalTaps || 0;
+    const currentTapBoostCount = userData.stats?.currentTapBoostCount || 0;
+    const maxTaps = userData.energy?.max || 2500;
+    const currentTaps = userData.stats?.currentTaps || 0;
+    
+    const boostCost = calculateBoostCost(currentTapBoostCount);
 
-   if (totalTaps < boostCost) {
-     return { 
-       success: false, 
-       message: `Need ${boostCost.toLocaleString()} total taps to refill. You have ${totalTaps.toLocaleString()} taps.`
-     };
-   }
+    if (totalTaps < boostCost) {
+      return { 
+        success: false, 
+        message: `Need ${boostCost.toLocaleString()} total taps to refill. You have ${totalTaps.toLocaleString()} taps.` 
+      };
+    }
 
-   if (currentTaps >= maxTaps) {
-     return {
-       success: false,
-       message: 'Taps are already at maximum capacity'
-     };
-   }
+    if (currentTaps >= maxTaps) {
+      return {
+        success: false,
+        message: 'Taps are already at maximum capacity'
+      };
+    }
 
-   const updates = {
-     'stats.currentTaps': maxTaps,
-     'stats.totalTaps': increment(-boostCost),
-     'stats.currentTapBoostCount': increment(1),
-     lastUpdated: serverTimestamp()
-   };
+    // Calculate the refill amount
+    const refillAmount = maxTaps - currentTaps;
 
-   await updateDoc(userRef, updates);
-   const updatedSnap = await getDoc(userRef);
-   const updatedData = updatedSnap.data();
+    await updateDoc(userRef, {
+      'stats.currentTaps': maxTaps,
+      'stats.totalTaps': increment(-boostCost),
+      'stats.currentTapBoostCount': increment(1),
+      lastUpdated: serverTimestamp()
+    });
 
-   return { 
-     success: true, 
-     message: `Successfully refilled ${maxTaps - currentTaps} taps`,
-     stats: updatedData.stats,
-     energy: updatedData.energy
-   };
- } catch (error) {
-   console.error('Error applying current tap boost:', error);
-   return { success: false, message: 'Error applying boost' };
- }
+    return { 
+      success: true, 
+      message: `Successfully refilled ${refillAmount.toLocaleString()} taps`,
+      stats: {
+        currentTapBoostCount: currentTapBoostCount + 1,
+        maxTaps,
+        totalTaps: totalTaps - boostCost
+      }
+    };
+
+  } catch (error) {
+    console.error('Error applying current tap boost:', error);
+    return { success: false, message: 'Error applying boost' };
+  }
 };
 
-const applyMaxTapBoost = async (userId) => {
- if (!userId) return { success: false, message: 'No user ID provided' };
+/**
+ * Increase maximum tap capacity
+ */
+export const applyMaxTapBoost = async (userId) => {
+  try {
+    if (!userId) {
+      return { success: false, message: 'No user ID provided' };
+    }
 
- try {
-   const userRef = doc(db, 'users', userId);
-   const userSnap = await getDoc(userRef);
-   
-   if (!userSnap.exists()) {
-     return { success: false, message: 'User not found' };
-   }
+    const userRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      return { success: false, message: 'User not found' };
+    }
 
-   const userData = userSnap.data();
-   const totalTaps = userData.stats?.totalTaps || 0;
-   const maxTapBoostCount = userData.stats?.maxTapBoostCount || 0;
-   const currentMax = userData.energy?.max || 2500;
-   
-   const boostCost = calculateBoostCost(maxTapBoostCount);
-   const increase = 500;
+    const userData = userSnap.data();
+    const totalTaps = userData.stats?.totalTaps || 0;
+    const maxTapBoostCount = userData.stats?.maxTapBoostCount || 0;
+    const currentMax = userData.energy?.max || 2500;
+    
+    const boostCost = calculateBoostCost(maxTapBoostCount);
+    const increase = 500;
 
-   if (totalTaps < boostCost) {
-     return { 
-       success: false, 
-       message: `Need ${boostCost.toLocaleString()} total taps to increase capacity. You have ${totalTaps.toLocaleString()} taps.` 
-     };
-   }
+    if (totalTaps < boostCost) {
+      return { 
+        success: false, 
+        message: `Need ${boostCost.toLocaleString()} total taps to increase capacity. You have ${totalTaps.toLocaleString()} taps.` 
+      };
+    }
 
-   const MAX_BOOST_LIMIT = 10000;
-   if (currentMax + increase > MAX_BOOST_LIMIT) {
-     return {
-       success: false,
-       message: `Maximum tap capacity limit (${MAX_BOOST_LIMIT}) would be exceeded`
-     };
-   }
+    const MAX_BOOST_LIMIT = 10000;
+    if (currentMax + increase > MAX_BOOST_LIMIT) {
+      return {
+        success: false,
+        message: `Maximum tap capacity limit (${MAX_BOOST_LIMIT.toLocaleString()}) would be exceeded`
+      };
+    }
 
-   const updates = {
-     'energy.max': increment(increase),
-     'stats.currentTaps': increment(increase),
-     'stats.totalTaps': increment(-boostCost),
-     'stats.maxTapBoostCount': increment(1),
-     lastUpdated: serverTimestamp()
-   };
+    const newMaxTaps = currentMax + increase;
 
-   await updateDoc(userRef, updates);
-   const updatedSnap = await getDoc(userRef);
-   const updatedData = updatedSnap.data();
+    await updateDoc(userRef, {
+      'energy.max': newMaxTaps,
+      'stats.currentTaps': increment(increase),
+      'stats.totalTaps': increment(-boostCost),
+      'stats.maxTapBoostCount': increment(1),
+      lastUpdated: serverTimestamp()
+    });
 
-   return { 
-     success: true, 
-     message: `Maximum tap capacity increased by ${increase}`,
-     stats: updatedData.stats,
-     energy: updatedData.energy
-   };
- } catch (error) {
-   console.error('Error applying max tap boost:', error);
-   return { success: false, message: 'Error applying boost' };
- }
-};
+    return { 
+      success: true, 
+      message: `Maximum tap capacity increased by ${increase.toLocaleString()}`,
+      stats: {
+        maxTapBoostCount: maxTapBoostCount + 1,
+        maxTaps: newMaxTaps,
+        totalTaps: totalTaps - boostCost
+      }
+    };
 
-const applyTapMultiplierBoost = async (userId) => {
- if (!userId) return { success: false, message: 'No user ID provided' };
-
- try {
-   const userRef = doc(db, 'users', userId);
-   const userSnap = await getDoc(userRef);
-   
-   if (!userSnap.exists()) {
-     return { success: false, message: 'User not found' };
-   }
-
-   const userData = userSnap.data();
-   const totalTaps = userData.stats?.totalTaps || 0;
-   const tapMultiplierCount = userData.stats?.tapMultiplierCount || 0;
-   const currentMultiplier = userData.stats?.tapMultiplier || 1;
-   
-   const boostCost = calculateBoostCost(tapMultiplierCount);
-   const newMultiplier = currentMultiplier * 2;
-
-   if (totalTaps < boostCost) {
-     return { 
-       success: false, 
-       message: `Need ${boostCost.toLocaleString()} total taps to increase multiplier. You have ${totalTaps.toLocaleString()} taps.` 
-     };
-   }
-
-   const MAX_MULTIPLIER = 32;
-   if (newMultiplier > MAX_MULTIPLIER) {
-     return {
-       success: false,
-       message: `Maximum multiplier limit (${MAX_MULTIPLIER}x) would be exceeded`
-     };
-   }
-
-   const updates = {
-     'stats.tapMultiplier': newMultiplier,
-     'stats.tapMultiplierCount': increment(1),
-     'stats.totalTaps': increment(-boostCost),
-     lastUpdated: serverTimestamp()
-   };
-
-   await updateDoc(userRef, updates);
-   const updatedSnap = await getDoc(userRef);
-   const updatedData = updatedSnap.data();
-
-   return { 
-     success: true, 
-     message: `Tap multiplier increased to ${newMultiplier}x`,
-     stats: updatedData.stats
-   };
- } catch (error) {
-   console.error('Error applying tap multiplier boost:', error);
-   return { success: false, message: 'Error applying boost' };
- }
+  } catch (error) {
+    console.error('Error applying max tap boost:', error);
+    return { success: false, message: 'Error applying boost' };
+  }
 };
 
 export const boostFunctions = {

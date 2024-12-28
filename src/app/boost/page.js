@@ -2,16 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import Link from 'next/link';
-import { Bolt, Zap, ChevronsUp } from 'lucide-react';
+import { Bolt, Zap } from 'lucide-react';
 import WebApp from '@twa-dev/sdk';
-import { boostFunctions } from '@/api/firebase/fireFunctions';
+import { applyCurrentTapBoost, applyMaxTapBoost, calculateBoostCost } from '@/api/firebase/boostFunctions';
 import { useTapManager } from '@/api/firebase/fireFunctions';
-
-// Import BoostCard normally first
 import BoostCard from '@/components/cards/BoostCard';
 
-// Dynamic imports for other components
 const Footer = dynamic(() => import('@/components/Footer'), {
   ssr: false,
   loading: () => <div className="h-16" />
@@ -27,8 +23,7 @@ export default function BoostPage() {
   const [error, setError] = useState(null);
   const [boostStats, setBoostStats] = useState({
     currentTapBoostCount: 0,
-    maxTapBoostCount: 0,
-    tapMultiplierCount: 0
+    maxTapBoostCount: 0
   });
 
   // Use the tap manager hook
@@ -40,7 +35,7 @@ export default function BoostPage() {
       if (typeof window !== 'undefined') {
         const webApp = WebApp;
         if (webApp.initDataUnsafe?.user?.id) {
-          setUserId(webApp.initDataUnsafe.user.id);
+          setUserId(webApp.initDataUnsafe.user.id.toString());
         }
       }
     } catch (error) {
@@ -50,19 +45,31 @@ export default function BoostPage() {
 
   const handleCurrentTapBoost = async () => {
     if (!userId || isLoading) return;
+    
     setIsLoading(true);
     setError(null);
     
     try {
-      const result = await boostFunctions.applyCurrentTapBoost(userId);
+      console.log('Attempting current tap boost for user:', userId);
+      const result = await applyCurrentTapBoost(userId);
+      console.log('Boost result:', result);
+      
       if (result.success) {
         await refreshMaxTaps();
+        WebApp?.showPopup({
+          message: result.message,
+          buttons: [{ type: 'ok' }]
+        });
       } else {
         setError(result.message);
+        WebApp?.showPopup({
+          message: result.message,
+          buttons: [{ type: 'ok' }]
+        });
       }
     } catch (error) {
-      setError('Failed to apply boost');
       console.error('Boost error:', error);
+      setError('Failed to apply boost');
     } finally {
       setIsLoading(false);
     }
@@ -70,47 +77,51 @@ export default function BoostPage() {
 
   const handleMaxTapBoost = async () => {
     if (!userId || isLoading) return;
+    
     setIsLoading(true);
     setError(null);
     
     try {
-      const result = await boostFunctions.applyMaxTapBoost(userId);
+      console.log('Attempting max tap boost for user:', userId);
+      const result = await applyMaxTapBoost(userId);
+      console.log('Boost result:', result);
+      
       if (result.success) {
         await refreshMaxTaps();
+        WebApp?.showPopup({
+          message: result.message,
+          buttons: [{ type: 'ok' }]
+        });
       } else {
         setError(result.message);
+        WebApp?.showPopup({
+          message: result.message,
+          buttons: [{ type: 'ok' }]
+        });
       }
     } catch (error) {
-      setError('Failed to apply boost');
       console.error('Boost error:', error);
+      setError('Failed to apply boost');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleMultiplierBoost = async () => {
-    if (!userId || isLoading) return;
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const result = await boostFunctions.applyTapMultiplierBoost(userId);
-      if (result.success) {
-        await refreshMaxTaps();
-      } else {
-        setError(result.message);
-      }
-    } catch (error) {
-      setError('Failed to apply boost');
-      console.error('Boost error:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const currentTapBoostCost = calculateBoostCost(boostStats.currentTapBoostCount);
+  const maxTapBoostCost = calculateBoostCost(boostStats.maxTapBoostCount);
 
-  const currentTapBoostCost = boostFunctions.calculateBoostCost(boostStats.currentTapBoostCount);
-  const maxTapBoostCost = boostFunctions.calculateBoostCost(boostStats.maxTapBoostCount);
-  const multiplierBoostCost = boostFunctions.calculateBoostCost(boostStats.tapMultiplierCount);
+  // Debug logging
+  useEffect(() => {
+    if (userId) {
+      console.log('Debug Info:', {
+        userId,
+        currentTaps,
+        maxTaps,
+        totalTaps,
+        boostStats
+      });
+    }
+  }, [userId, currentTaps, maxTaps, totalTaps, boostStats]);
 
   return (
     <SafeAreaContainer>
@@ -126,7 +137,7 @@ export default function BoostPage() {
           <div className="space-y-4">
             <BoostCard
               title="Refill Current Taps"
-              description={`Fill your taps back to maximum (${maxTaps})`}
+              description={`Fill your taps back to maximum (${maxTaps?.toLocaleString()})`}
               cost={currentTapBoostCost}
               onBoost={handleCurrentTapBoost}
               isLoading={isLoading}
@@ -142,16 +153,6 @@ export default function BoostPage() {
               isLoading={isLoading}
               disabled={isLoading || totalTaps < maxTapBoostCost}
               icon={<Zap className="h-5 w-5" />}
-            />
-
-            <BoostCard
-              title="Double Tap Multiplier"
-              description="Double the taps you get per tap"
-              cost={multiplierBoostCost}
-              onBoost={handleMultiplierBoost}
-              isLoading={isLoading}
-              disabled={isLoading || totalTaps < multiplierBoostCost}
-              icon={<ChevronsUp className="h-5 w-5" />}
             />
           </div>
 
