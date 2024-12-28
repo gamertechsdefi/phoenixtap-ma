@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Bolt, Zap } from 'lucide-react';
 import WebApp from '@twa-dev/sdk';
-import { applyCurrentTapBoost, applyMaxTapBoost, calculateBoostCost } from '@/api/firebase/boostFunctions';
+import { applyCurrentTapBoost, applyMaxTapBoost, calculateBoostCost } from '@/api/firebase/fireFunctions';
 import { useTapManager } from '@/api/firebase/fireFunctions';
 import BoostCard from '@/components/cards/BoostCard';
 
