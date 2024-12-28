@@ -6,22 +6,35 @@ import {
   updateDoc,
   increment,
   serverTimestamp,
-  deleteField
+  deleteField,
+  collection,
+  query,
+  where,
+  getDocs,
+  writeBatch,
+  orderBy
 } from 'firebase/firestore';
-import { db } from "@/api/firebase/triggers";
+import { db } from "./triggers";
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-const TAP_CONFIG = {
-  MAX_TAPS: 2500,
+export const TAP_CONFIG = {
   INACTIVITY_DELAY: 5000,
   REGEN_INTERVAL: 1000,
+  REGEN_AMOUNT: 10,
+  UPDATE_THRESHOLD: 50,
+  DEFAULT_MAX_TAPS: 2500
 };
 
-const createTapManager = () => {
+export const createTapManager = () => {
   const state = {
-    currentTaps: TAP_CONFIG.MAX_TAPS,
+    currentTaps: 0,
+    maxTaps: TAP_CONFIG.DEFAULT_MAX_TAPS,
     totalTaps: 0,
-    isRegenerating: false
+    isRegenerating: false,
+    pendingTotalTaps: 0,
+    lastUpdateTaps: 0,
+    tapMultiplier: 1,
+    lastTapTime: Date.now()
   };
 
   let updateTimeout = null;
@@ -32,87 +45,255 @@ const createTapManager = () => {
     subscribers.forEach(callback => callback({ ...state }));
   };
 
-  const startRegeneration = () => {
-    if (regenInterval || state.isRegenerating) return;
+  const updateBackend = async (userId) => {
+    if (!userId) return;
+
+    try {
+      console.log('Updating backend with state:', {
+        currentTaps: state.currentTaps,
+        totalTaps: state.totalTaps,
+        pendingTotalTaps: state.pendingTotalTaps
+      });
+
+      const userRef = doc(db, 'users', String(userId));
+      await updateDoc(userRef, {
+        'stats.currentTaps': state.currentTaps,
+        'stats.totalTaps': state.totalTaps,
+        'stats.pendingTotalTaps': state.pendingTotalTaps,
+        lastUpdated: serverTimestamp()
+      });
+      
+      state.lastUpdateTaps = state.currentTaps;
+      console.log('Backend update successful');
+    } catch (error) {
+      console.error('Error updating backend:', error);
+    }
+  };
+
+  const startRegeneration = (userId) => {
+    if (regenInterval || state.isRegenerating || state.currentTaps >= state.maxTaps) {
+      return;
+    }
     
+    const timeSinceLastTap = Date.now() - state.lastTapTime;
+    if (timeSinceLastTap < TAP_CONFIG.INACTIVITY_DELAY) {
+      return;
+    }
+    
+    console.log('Starting regeneration process');
     state.isRegenerating = true;
-    regenInterval = setInterval(() => {
-      if (state.currentTaps < TAP_CONFIG.MAX_TAPS) {
-        state.currentTaps+=10;
+    state.lastUpdateTaps = state.currentTaps;
+
+    regenInterval = setInterval(async () => {
+      if (state.currentTaps < state.maxTaps) {
+        const previousTaps = state.currentTaps;
+        state.currentTaps += TAP_CONFIG.REGEN_AMOUNT;
+        
+        if (state.currentTaps > state.maxTaps) {
+          state.currentTaps = state.maxTaps;
+        }
+
+        console.log(`Regenerated taps: ${previousTaps} -> ${state.currentTaps}`);
+
+        const tapsSinceLastUpdate = state.currentTaps - state.lastUpdateTaps;
+        if (tapsSinceLastUpdate >= TAP_CONFIG.UPDATE_THRESHOLD || state.currentTaps === state.maxTaps) {
+          await updateBackend(userId);
+        }
+
         notifySubscribers();
+
+        if (state.currentTaps === state.maxTaps) {
+          console.log('Reached max taps, stopping regeneration');
+          clearInterval(regenInterval);
+          regenInterval = null;
+          state.isRegenerating = false;
+          await updateBackend(userId);
+        }
       } else {
+        console.log('Stopping regeneration - max taps reached');
         clearInterval(regenInterval);
         regenInterval = null;
         state.isRegenerating = false;
+        await updateBackend(userId);
       }
     }, TAP_CONFIG.REGEN_INTERVAL);
   };
 
   const fetchTaps = async (userId) => {
+    if (!userId) return;
+
     try {
+      console.log('Fetching taps for user:', userId);
       const userRef = doc(db, 'users', String(userId));
       const docSnap = await getDoc(userRef);
 
       if (docSnap.exists()) {
         const data = docSnap.data();
-        state.totalTaps = data?.stats?.totalTaps || 0;
-        state.currentTaps = data?.stats?.currentTaps || TAP_CONFIG.MAX_TAPS;
-      }
+        console.log('Fetched user data:', data);
 
-      if (state.currentTaps === 0) {
-        startRegeneration();
+        state.totalTaps = data?.stats?.totalTaps || 0;
+        state.currentTaps = data?.stats?.currentTaps || 0;
+        state.lastUpdateTaps = state.currentTaps;
+        state.pendingTotalTaps = data?.stats?.pendingTotalTaps || 0;
+        state.tapMultiplier = data?.stats?.tapMultiplier || 1;
+
+        if (data.energy && typeof data.energy.max === 'number') {
+          console.log('Setting maxTaps to:', data.energy.max);
+          state.maxTaps = data.energy.max;
+        }
+
+        if (state.currentTaps > state.maxTaps) {
+          state.currentTaps = state.maxTaps;
+          await updateBackend(userId);
+        }
+
+        if (state.currentTaps < state.maxTaps) {
+          startRegeneration(userId);
+        }
+
+        notifySubscribers();
+        console.log('State after fetch:', { ...state });
+      } else {
+        console.warn('No document found for user:', userId);
       }
-      notifySubscribers();
     } catch (error) {
       console.error('Error fetching taps:', error);
     }
   };
 
-  const updateTaps = async (userId) => {
-    try {
-      const userRef = doc(db, 'users', String(userId));
-      await updateDoc(userRef, {
-        'stats.currentTaps': state.currentTaps,
-        'stats.totalTaps': state.totalTaps,
-        lastUpdated: serverTimestamp()
+  const handleTap = async (userId) => {
+    if (!userId) return false;
+
+    state.lastTapTime = Date.now();
+    
+    if (state.currentTaps < state.tapMultiplier) {
+      console.log('Not enough taps for multiplier:', {
+        currentTaps: state.currentTaps,
+        required: state.tapMultiplier
       });
+      return false;
+    }
+
+    console.log('Tap stats before:', {
+      currentTaps: state.currentTaps,
+      totalTaps: state.totalTaps,
+      multiplier: state.tapMultiplier
+    });
+
+    state.currentTaps -= state.tapMultiplier;
+    
+    const tapIncrease = 1 * state.tapMultiplier;
+    state.totalTaps += tapIncrease;
+    state.pendingTotalTaps += tapIncrease;
+
+    console.log('Tap stats after:', {
+      currentTaps: state.currentTaps,
+      totalTaps: state.totalTaps,
+      pendingTotalTaps: state.pendingTotalTaps
+    });
+    
+    if (state.currentTaps === 0) {
+      startRegeneration(userId);
+    }
+    
+    notifySubscribers();
+
+    if (updateTimeout) {
+      clearTimeout(updateTimeout);
+    }
+
+    updateTimeout = setTimeout(async () => {
+      await updateBackend(userId);
+      state.pendingTotalTaps = 0;
+      notifySubscribers();
+      
+      if (state.currentTaps < state.maxTaps) {
+        startRegeneration(userId);
+      }
+    }, TAP_CONFIG.INACTIVITY_DELAY);
+
+    return true;
+  };
+
+  const updateMaxTaps = async (userId) => {
+    if (!userId) return false;
+
+    try {
+      console.log('Updating max taps for user:', userId);
+      const userRef = doc(db, 'users', String(userId));
+      const docSnap = await getDoc(userRef);
+      
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        console.log('Fetched energy data:', data.energy);
+        
+        if (data.energy && typeof data.energy.max === 'number') {
+          const newMaxTaps = data.energy.max;
+          console.log('New maxTaps value:', newMaxTaps);
+          
+          state.maxTaps = newMaxTaps;
+          if (state.currentTaps > newMaxTaps) {
+            state.currentTaps = newMaxTaps;
+          }
+
+          notifySubscribers();
+          console.log('Updated state:', state);
+
+          await updateDoc(userRef, {
+            'stats.currentTaps': state.currentTaps,
+            lastUpdated: serverTimestamp()
+          });
+
+          return true;
+        }
+      }
+      return false;
     } catch (error) {
-      console.error('Error updating taps:', error);
+      console.error('Error updating max taps:', error);
+      return false;
     }
   };
+
+  const getTapManagerState = () => ({
+    currentTaps: state.currentTaps,
+    maxTaps: state.maxTaps,
+    totalTaps: state.totalTaps,
+    pendingTotalTaps: state.pendingTotalTaps,
+    isRegenerating: state.isRegenerating,
+    tapMultiplier: state.tapMultiplier
+  });
 
   return {
     subscribe(callback) {
       subscribers.add(callback);
-      callback({ ...state });
+      callback(getTapManagerState());
       return () => subscribers.delete(callback);
     },
 
     async init(userId) {
-      if (!userId) return;
+      console.log('Initializing tap manager for user:', userId);
+      if (!userId) {
+        console.warn('No userId provided for initialization');
+        return;
+      }
       await fetchTaps(userId);
     },
 
     handleTap(userId) {
-      if (state.currentTaps <= 0) return false;
+      return handleTap(userId);
+    },
 
-      state.currentTaps--;
-      state.totalTaps++;
-      
-      if (state.currentTaps === 0) {
-        startRegeneration();
+    async refreshMaxTaps(userId) {
+      console.log('Refreshing max taps for user:', userId);
+      if (!userId) {
+        console.warn('No userId provided for refresh');
+        return false;
       }
-      
-      notifySubscribers();
+      return await updateMaxTaps(userId);
+    },
 
-      if (updateTimeout) {
-        clearTimeout(updateTimeout);
-      }
-      updateTimeout = setTimeout(() => {
-        updateTaps(userId);
-      }, TAP_CONFIG.INACTIVITY_DELAY);
-
-      return true;
+    getState() {
+      return getTapManagerState();
     },
 
     cleanup() {
@@ -131,15 +312,19 @@ const tapManager = createTapManager();
 
 export const useTapManager = (userId) => {
   const [tapState, setTapState] = useState({
-    currentTaps: TAP_CONFIG.MAX_TAPS,
-    totalTaps: 0
+    currentTaps: 0,
+    maxTaps: TAP_CONFIG.DEFAULT_MAX_TAPS,
+    totalTaps: 0,
+    pendingTotalTaps: 0,
+    isRegenerating: false,
+    tapMultiplier: 1
   });
 
   useEffect(() => {
     if (!userId) return;
 
-    tapManager.init(userId);
     const unsubscribe = tapManager.subscribe(setTapState);
+    tapManager.init(userId);
 
     return () => {
       unsubscribe();
@@ -151,61 +336,112 @@ export const useTapManager = (userId) => {
     return tapManager.handleTap(userId);
   }, [userId]);
 
+  const refreshMaxTaps = useCallback(async () => {
+    const success = await tapManager.refreshMaxTaps(userId);
+    if (!success) {
+      console.warn('Failed to refresh max taps');
+    }
+    return success;
+  }, [userId]);
+
   return {
     currentTaps: tapState.currentTaps,
+    maxTaps: tapState.maxTaps,
     totalTaps: tapState.totalTaps,
-    handleTap
+    pendingTotalTaps: tapState.pendingTotalTaps,
+    isRegenerating: tapState.isRegenerating,
+    tapMultiplier: tapState.tapMultiplier,
+    handleTap,
+    refreshMaxTaps
   };
 };
 
-export const useXPManager = (userId) => {
-  const [totalXP, setCurrentXP] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const initialized = useRef(false);
-
-  const fetchUserXP = async () => {
-    if (!userId) return;
-
+// Base XP Manager functions for Firebase operations
+export const xpManager = {
+  async fetchXP(userId) {
+    if (!userId) return 0;
     try {
       const userRef = doc(db, 'users', String(userId));
       const docSnap = await getDoc(userRef);
-
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        const xp = data?.stats?.totalXP || 0;
-        setCurrentXP(xp);
-      }
+      return docSnap.exists() ? docSnap.data()?.stats?.totalXP || 0 : 0;
     } catch (error) {
-      console.error('Error fetching user XP:', error);
-    } finally {
-      setIsLoading(false);
+      console.error('Error fetching XP:', error);
+      return 0;
     }
-  };
+  },
 
-  const updateXP = async (xpToAdd) => {
-    if (!userId || xpToAdd <= 0) return;
-
+  async updateXP(userId, xpToAdd) {
+    if (!userId || xpToAdd <= 0) return false;
     try {
       const userRef = doc(db, 'users', String(userId));
-
       await updateDoc(userRef, {
         'stats.totalXP': increment(xpToAdd),
+        'stats.currentXP': increment(xpToAdd),
         lastUpdated: serverTimestamp()
       });
-
-      setCurrentXP(prev => prev + xpToAdd);
       return true;
     } catch (error) {
       console.error('Error updating XP:', error);
       return false;
     }
-  };
+  }
+};
 
+// Custom hook for XP management
+export const useXPManager = (userId) => {
+  const [totalXP, setTotalXP] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch initial XP
   useEffect(() => {
-    if (!userId || initialized.current) return;
+    let mounted = true;
 
-    initialized.current = true;
-    fetchUserXP();
+    const fetchInitialXP = async () => {
+      if (!userId) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const xp = await xpManager.fetchXP(userId);
+        if (mounted) {
+          setTotalXP(xp);
+        }
+      } catch (error) {
+        console.error('Error fetching initial XP:', error);
+      } finally {
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchInitialXP();
+
+    return () => {
+      mounted = false;
+    };
+  }, [userId]);
+
+  // Update XP function
+  const updateXP = useCallback(async (xpToAdd) => {
+    if (!userId || !xpToAdd) return false;
+
+    try {
+      setIsLoading(true);
+      const success = await xpManager.updateXP(userId, xpToAdd);
+      
+      if (success) {
+        setTotalXP(prev => prev + xpToAdd);
+      }
+      
+      return success;
+    } catch (error) {
+      console.error('Error in updateXP:', error);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
   }, [userId]);
 
   return {
@@ -216,10 +452,10 @@ export const useXPManager = (userId) => {
 };
 
 export const taskService = {
-  async fetchTasks(category) {
+  fetchTasks: async (category) => {
     try {
       const q = query(
-        collection(db, 'users', 'tasks'),
+        collection(db, 'tasks'),
         where('category', '==', category),
         where('active', '==', true),
         orderBy('createdAt', 'desc')
@@ -236,162 +472,460 @@ export const taskService = {
     }
   },
 
-  async completeTask(taskId, completed = true) {
+  fetchPartnerTasks: async () => {
     try {
+      const q = query(
+        collection(db, 'partners'),
+        where('active', '==', true),
+        orderBy('position', 'asc')
+      );
+
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    } catch (error) {
+      console.error('Error fetching partner tasks:', error);
+      return [];
+    }
+  },
+
+  completeTask: async (userId, taskId, category) => {
+    try {
+      const userRef = doc(db, 'users', userId);
       const taskRef = doc(db, 'tasks', taskId);
+
+      const taskSnap = await getDoc(taskRef);
+      if (!taskSnap.exists()) {
+        throw new Error('Task not found');
+      }
+
+      const taskData = taskSnap.data();
+      const xpReward = taskData.xpReward || 0;
+
       await updateDoc(taskRef, {
-        completed,
-        completedAt: new Date().toISOString()
+        completed: true,
+        completedAt: serverTimestamp()
       });
-      return true;
+
+      await updateDoc(userRef, {
+        [`stats.completedTasks.${category}`]: increment(1),
+        'stats.currentXP': increment(xpReward),
+        'stats.totalXP': increment(xpReward),
+        lastUpdated: serverTimestamp()
+      });
+
+      return { success: true, xpEarned: xpReward };
     } catch (error) {
       console.error('Error completing task:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  completePartnerTask: async (userId, partnerId) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const partnerRef = doc(db, 'partners', partnerId);
+
+      const partnerSnap = await getDoc(partnerRef);
+      if (!partnerSnap.exists()) {
+        throw new Error('Partner not found');
+      }
+
+      const partnerData = partnerSnap.data();
+      const xpReward = partnerData.xpReward || 0;
+
+      await updateDoc(userRef, {
+        [`completedPartners.${partnerId}`]: {
+          completedAt: serverTimestamp(),
+          xpEarned: xpReward
+        },
+        'stats.currentXP': increment(xpReward),
+        'stats.totalXP': increment(xpReward),
+        lastUpdated: serverTimestamp()
+      });
+
+      return { success: true, xpEarned: xpReward };
+    } catch (error) {
+      console.error('Error completing partner task:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  checkPartnerTaskCompletion: async (userId, partnerId) => {
+    try {
+      const userSnap = await getDoc(doc(db, 'users', userId));
+      if (!userSnap.exists()) return false;
+
+      const userData = userSnap.data();
+      return !!userData.completedPartners?.[partnerId];
+    } catch (error) {
+      console.error('Error checking partner task completion:', error);
       return false;
     }
   }
 };
 
-// Generate referral code with PHX prefix
 const generateReferralCode = (userId) => {
   const prefix = 'PHX';
   const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
   return `${prefix}${randomPart}`;
 };
 
-// Export referralSystem and its functions
 export const referralSystem = {
-  async processReferral(newUserId) {
-      try {
-          const newUserRef = doc(db, 'users', String(newUserId));
-          const newUserDoc = await getDoc(newUserRef);
+  processReferral: async (newUserId) => {
+    try {
+      const newUserRef = doc(db, 'users', String(newUserId));
+      const newUserDoc = await getDoc(newUserRef);
+      
+      if (!newUserDoc.exists()) return false;
+      
+      const userData = newUserDoc.data();
+      if (!userData.pendingReferralCode || userData.referredBy) return false;
 
-          if (!newUserDoc.exists()) return false;
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('referralCode', '==', userData.pendingReferralCode));
+      const querySnapshot = await getDocs(q);
 
-          const userData = newUserDoc.data();
-          
-          if (!userData.pendingReferralCode || userData.referredBy) {
-              return false;
-          }
+      if (querySnapshot.empty) return false;
 
-          const usersRef = collection(db, 'users');
-          const q = query(usersRef, where('referralCode', '==', userData.pendingReferralCode));
-          const querySnapshot = await getDocs(q);
+      const referrerDoc = querySnapshot.docs[0];
+      const referrerData = referrerDoc.data();
+      const referrerId = referrerDoc.id;
 
-          if (querySnapshot.empty) return false;
+      if (referrerId === String(newUserId)) return false;
 
-          const referrerDoc = querySnapshot.docs[0];
-          const referrerData = referrerDoc.data();
-          const referrerId = referrerDoc.id;
+      const batch = writeBatch(db);
 
-          if (referrerId === String(newUserId)) return false;
+      batch.update(doc(db, 'users', referrerId), {
+        referralsCount: increment(1),
+        totalReferralRewards: increment(100),
+        'stats.currentXP': increment(100),
+        'stats.totalXP': increment(100),
+        lastUpdated: serverTimestamp()
+      });
 
-          const batch = writeBatch(db);
+      batch.set(doc(db, 'users', referrerId, 'friends', String(newUserId)), {
+        userId: String(newUserId),
+        username: userData.username || '',
+        firstName: userData.firstName || '',
+        referredAt: serverTimestamp()
+      });
 
-          // Update referrer
-          const referrerRef = doc(db, 'users', referrerId);
-          batch.update(referrerRef, {
-              referralsCount: increment(1),
-              totalReferralRewards: increment(100),
-              'stats.currentXP': increment(100),
-              'stats.totalXP': increment(100),
-              lastUpdated: serverTimestamp()
-          });
+      batch.update(newUserRef, {
+        referredBy: {
+          userId: referrerId,
+          username: referrerData.username || '',
+          firstName: referrerData.firstName || '',
+          referralCode: userData.pendingReferralCode
+        },
+        'stats.currentXP': increment(50),
+        'stats.totalXP': increment(50),
+        pendingReferralCode: deleteField(),
+        lastUpdated: serverTimestamp()
+      });
 
-          // Add to friends collection
-          const friendRef = doc(db, 'users', referrerId, 'friends', String(newUserId));
-          batch.set(friendRef, {
-              userId: String(newUserId),
-              username: userData.username || '',
-              firstName: userData.firstName || '',
-              referredAt: serverTimestamp()
-          });
-
-          // Update referred user
-          batch.update(newUserRef, {
-              referredBy: {
-                  userId: referrerId,
-                  username: referrerData.username || '',
-                  firstName: referrerData.firstName || '',
-                  referralCode: userData.pendingReferralCode
-              },
-              'stats.currentXP': increment(50),
-              'stats.totalXP': increment(50),
-              pendingReferralCode: deleteField(),
-              lastUpdated: serverTimestamp()
-          });
-
-          await batch.commit();
-          return true;
-      } catch (error) {
-          console.error('Error processing referral:', error);
-          return false;
-      }
+      await batch.commit();
+      return true;
+    } catch (error) {
+      console.error('Error processing referral:', error);
+      return false;
+    }
   },
 
-  async initializeReferralCode(userId) {
-      if (!userId) return null;
+  initializeReferralCode: async (userId) => {
+    if (!userId) return null;
+    try {
+      const userRef = doc(db, 'users', String(userId));
+      const userDoc = await getDoc(userRef);
 
-      try {
-          const userRef = doc(db, 'users', String(userId));
-          const userDoc = await getDoc(userRef);
+      if (!userDoc.exists()) return null;
 
-          if (!userDoc.exists()) return null;
-
-          const userData = userDoc.data();
-          
-          if (!userData.referralCode) {
-              const referralCode = generateReferralCode(userId);
-              await updateDoc(userRef, {
-                  referralCode,
-                  referralsCount: 0,
-                  totalReferralRewards: 0
-              });
-              return referralCode;
-          }
-
-          return userData.referralCode;
-      } catch (error) {
-          console.error('Error initializing referral code:', error);
-          return null;
+      const userData = userDoc.data();
+      if (!userData.referralCode) {
+        const referralCode = generateReferralCode(userId);
+        await updateDoc(userRef, {
+          referralCode,
+          referralsCount: 0,
+          totalReferralRewards: 0
+        });
+        return referralCode;
       }
+      return userData.referralCode;
+    } catch (error) {
+      console.error('Error initializing referral code:', error);
+      return null;
+    }
   },
 
-  async getReferralStats(userId) {
-      try {
-          const userRef = doc(db, 'users', String(userId));
-          const userDoc = await getDoc(userRef);
+  getReferralStats: async (userId) => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', String(userId)));
+      if (!userDoc.exists()) return null;
 
-          if (!userDoc.exists()) return null;
-
-          const userData = userDoc.data();
-          return {
-              referralCode: userData.referralCode || '',
-              referralsCount: userData.referralsCount || 0,
-              totalRewards: userData.totalReferralRewards || 0
-          };
-      } catch (error) {
-          console.error('Error getting referral stats:', error);
-          return null;
-      }
+      const userData = userDoc.data();
+      return {
+        referralCode: userData.referralCode || '',
+        referralsCount: userData.referralsCount || 0,
+        totalRewards: userData.totalReferralRewards || 0
+      };
+    } catch (error) {
+      console.error('Error getting referral stats:', error);
+      return null;
+    }
   },
 
-  async getFriendsList(userId) {
-      try {
-          const friendsRef = collection(db, 'users', String(userId), 'friends');
-          const friendsSnapshot = await getDocs(friendsRef);
-          
-          const friends = [];
-          friendsSnapshot.forEach(doc => {
-              friends.push({
-                  id: doc.id,
-                  ...doc.data()
-              });
-          });
-
-          return friends;
-      } catch (error) {
-          console.error('Error getting friends list:', error);
-          return [];
-      }
+  getFriendsList: async (userId) => {
+    try {
+      const friendsSnapshot = await getDocs(collection(db, 'users', String(userId), 'friends'));
+      return friendsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+    } catch (error) {
+      console.error('Error getting friends list:', error);
+      return [];
+    }
   }
 };
+
+
+const calculateBoostCost = (boostCount) => {
+ if (boostCount === 0) return 1000;
+ return 1000 * Math.pow(2, boostCount);
+};
+
+const applyCurrentTapBoost = async (userId) => {
+ if (!userId) return { success: false, message: 'No user ID provided' };
+
+ try {
+   const userRef = doc(db, 'users', userId);
+   const userSnap = await getDoc(userRef);
+   
+   if (!userSnap.exists()) {
+     return { success: false, message: 'User not found' };
+   }
+
+   const userData = userSnap.data();
+   const totalTaps = userData.stats?.totalTaps || 0;
+   const currentTapBoostCount = userData.stats?.currentTapBoostCount || 0;
+   const maxTaps = userData.energy?.max || 2500;
+   const currentTaps = userData.stats?.currentTaps || 0;
+   
+   const boostCost = calculateBoostCost(currentTapBoostCount);
+
+   if (totalTaps < boostCost) {
+     return { 
+       success: false, 
+       message: `Need ${boostCost.toLocaleString()} total taps to refill. You have ${totalTaps.toLocaleString()} taps.`
+     };
+   }
+
+   if (currentTaps >= maxTaps) {
+     return {
+       success: false,
+       message: 'Taps are already at maximum capacity'
+     };
+   }
+
+   const updates = {
+     'stats.currentTaps': maxTaps,
+     'stats.totalTaps': increment(-boostCost),
+     'stats.currentTapBoostCount': increment(1),
+     lastUpdated: serverTimestamp()
+   };
+
+   await updateDoc(userRef, updates);
+   const updatedSnap = await getDoc(userRef);
+   const updatedData = updatedSnap.data();
+
+   return { 
+     success: true, 
+     message: `Successfully refilled ${maxTaps - currentTaps} taps`,
+     stats: updatedData.stats,
+     energy: updatedData.energy
+   };
+ } catch (error) {
+   console.error('Error applying current tap boost:', error);
+   return { success: false, message: 'Error applying boost' };
+ }
+};
+
+const applyMaxTapBoost = async (userId) => {
+ if (!userId) return { success: false, message: 'No user ID provided' };
+
+ try {
+   const userRef = doc(db, 'users', userId);
+   const userSnap = await getDoc(userRef);
+   
+   if (!userSnap.exists()) {
+     return { success: false, message: 'User not found' };
+   }
+
+   const userData = userSnap.data();
+   const totalTaps = userData.stats?.totalTaps || 0;
+   const maxTapBoostCount = userData.stats?.maxTapBoostCount || 0;
+   const currentMax = userData.energy?.max || 2500;
+   
+   const boostCost = calculateBoostCost(maxTapBoostCount);
+   const increase = 500;
+
+   if (totalTaps < boostCost) {
+     return { 
+       success: false, 
+       message: `Need ${boostCost.toLocaleString()} total taps to increase capacity. You have ${totalTaps.toLocaleString()} taps.` 
+     };
+   }
+
+   const MAX_BOOST_LIMIT = 10000;
+   if (currentMax + increase > MAX_BOOST_LIMIT) {
+     return {
+       success: false,
+       message: `Maximum tap capacity limit (${MAX_BOOST_LIMIT}) would be exceeded`
+     };
+   }
+
+   const updates = {
+     'energy.max': increment(increase),
+     'stats.currentTaps': increment(increase),
+     'stats.totalTaps': increment(-boostCost),
+     'stats.maxTapBoostCount': increment(1),
+     lastUpdated: serverTimestamp()
+   };
+
+   await updateDoc(userRef, updates);
+   const updatedSnap = await getDoc(userRef);
+   const updatedData = updatedSnap.data();
+
+   return { 
+     success: true, 
+     message: `Maximum tap capacity increased by ${increase}`,
+     stats: updatedData.stats,
+     energy: updatedData.energy
+   };
+ } catch (error) {
+   console.error('Error applying max tap boost:', error);
+   return { success: false, message: 'Error applying boost' };
+ }
+};
+
+const applyTapMultiplierBoost = async (userId) => {
+ if (!userId) return { success: false, message: 'No user ID provided' };
+
+ try {
+   const userRef = doc(db, 'users', userId);
+   const userSnap = await getDoc(userRef);
+   
+   if (!userSnap.exists()) {
+     return { success: false, message: 'User not found' };
+   }
+
+   const userData = userSnap.data();
+   const totalTaps = userData.stats?.totalTaps || 0;
+   const tapMultiplierCount = userData.stats?.tapMultiplierCount || 0;
+   const currentMultiplier = userData.stats?.tapMultiplier || 1;
+   
+   const boostCost = calculateBoostCost(tapMultiplierCount);
+   const newMultiplier = currentMultiplier * 2;
+
+   if (totalTaps < boostCost) {
+     return { 
+       success: false, 
+       message: `Need ${boostCost.toLocaleString()} total taps to increase multiplier. You have ${totalTaps.toLocaleString()} taps.` 
+     };
+   }
+
+   const MAX_MULTIPLIER = 32;
+   if (newMultiplier > MAX_MULTIPLIER) {
+     return {
+       success: false,
+       message: `Maximum multiplier limit (${MAX_MULTIPLIER}x) would be exceeded`
+     };
+   }
+
+   const updates = {
+     'stats.tapMultiplier': newMultiplier,
+     'stats.tapMultiplierCount': increment(1),
+     'stats.totalTaps': increment(-boostCost),
+     lastUpdated: serverTimestamp()
+   };
+
+   await updateDoc(userRef, updates);
+   const updatedSnap = await getDoc(userRef);
+   const updatedData = updatedSnap.data();
+
+   return { 
+     success: true, 
+     message: `Tap multiplier increased to ${newMultiplier}x`,
+     stats: updatedData.stats
+   };
+ } catch (error) {
+   console.error('Error applying tap multiplier boost:', error);
+   return { success: false, message: 'Error applying boost' };
+ }
+};
+
+export const boostFunctions = {
+ calculateBoostCost,
+ applyCurrentTapBoost,
+ applyMaxTapBoost,
+ applyTapMultiplierBoost
+};
+
+export const userFunctions = {
+  fetchUserDetails: async (userId) => {
+    try {
+      if (!userId) throw new Error('No user ID provided');
+
+      const userSnap = await getDoc(doc(db, 'users', String(userId)));
+      if (!userSnap.exists()) throw new Error('User not found');
+
+      const userData = userSnap.data();
+      return {
+        success: true,
+        data: {
+          username: userData.username || 'Anonymous',
+          firstName: userData.firstName || '',
+          lastName: userData.lastName || '',
+          stats: {
+            totalTaps: userData.stats?.totalTaps || 0,
+            totalXP: userData.stats?.totalXP || 0,
+            currentLevel: userData.stats?.currentLevel || 1,
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error fetching user details:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to fetch user details'
+      };
+    }
+  }
+};
+
+// Group all exports
+// export default {
+//   createTapManager,
+//   useTapManager,
+//   useXPManager,
+//   taskService,
+//   referralSystem,
+//   boostFunctions,
+//   userFunctions,
+//   TAP_CONFIG
+// };
+
+const functions = {
+  createTapManager,
+  useTapManager,
+  xpManager,
+  taskService,
+  referralSystem,
+  boostFunctions,
+  userFunctions,
+  TAP_CONFIG
+};
+
+export default functions;

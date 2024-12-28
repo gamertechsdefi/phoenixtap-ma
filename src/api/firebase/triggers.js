@@ -18,20 +18,20 @@ import {
 
 // Your Firebase config
 const firebaseConfig = {
-    apiKey: "AIzaSyB2DAlYjXRRz6iy4aPZplsOtfS53QjUpso",
-    authDomain: "phoenixbeta-database.firebaseapp.com",
-    databaseURL: "https://phoenixbeta-database-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "phoenixbeta-database",
-    storageBucket: "phoenixbeta-database.firebasestorage.app",
-    messagingSenderId: "502359767933",
-    appId: "1:502359767933:web:43afa7bbd2c49c96b4aa14",
-    measurementId: "G-S7B8LKYR36"
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+    measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-export { db }
+export { db };
 
 const generateReferralCode = (userId) => {
     const prefix = 'PHX';
@@ -70,7 +70,7 @@ export const initializeUser = async (telegramUser) => {
                     points: 0,
                     currentLevel: 1,
                     totalTaps: 0,
-                    currentTaps: 0,
+                    currentTaps: 2500,
                     pendingTotalTaps: 0,
                     adsWatched: 0,
                     tasksCompleted: 0,

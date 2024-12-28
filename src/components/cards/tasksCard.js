@@ -1,8 +1,10 @@
 // components/TaskCard.js
+
+import WebApp from "@twa-dev/sdk";
 export default function TaskCard({ task, onComplete }) {
     const handleTaskClick = () => {
       if (task.url) {
-        window.Telegram.WebApp.openLink(task.url);
+        WebApp.openLink(task.url);
       }
     };
   
@@ -24,7 +26,9 @@ export default function TaskCard({ task, onComplete }) {
             <button
               onClick={(e) => {
                 e.stopPropagation();
+                handleTaskClick();
                 onComplete(task);
+                
               }}
               className="bg-neutral-100 px-4 py-2 rounded-lg text-neutral-900"
             >

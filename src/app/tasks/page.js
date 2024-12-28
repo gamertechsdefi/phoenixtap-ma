@@ -1,17 +1,50 @@
-'use client'
+'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useXPManager } from '@/api/firebase/fireFunctions';
-import TaskList from '@/components/TaskLink';
+import React, { useState, useEffect, Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import WebApp from '@twa-dev/sdk';
+import { useXPManager } from '@/api/firebase/fireFunctions';
+
+const TaskList = dynamic(() => import('@/components/TaskLink'), {
+  ssr: false,
+  loading: () => <TaskListSkeleton />
+});
+
+const Footer = dynamic(() => import('@/components/Footer'), {
+  ssr: false,
+  loading: () => <div className="h-16" />
+});
+
+const SafeAreaContainer = dynamic(() => import('@/components/SafeAreaContainer'), {
+  ssr: false
+});
+
+const TaskListSkeleton = () => (
+  <div className="space-y-4 animate-pulse">
+    {[...Array(3)].map((_, i) => (
+      <div key={i} className="bg-neutral-800 p-4 rounded-lg">
+        <div className="h-4 bg-neutral-700 rounded w-3/4 mb-2" />
+        <div className="h-4 bg-neutral-700 rounded w-1/2" />
+      </div>
+    ))}
+  </div>
+);
+
+const tabs = [
+  { id: 'daily-login', label: 'Daily', icon: '📅' },
+  { id: 'stacks', label: 'Stacks', icon: '🎯' },
+  { id: 'socials', label: 'Socials', icon: '🌐' },
+  { id: 'partners', label: 'Partners', icon: '🤝' }
+];
 
 export default function TaskPage() {
   const [userId, setUserId] = useState(null);
   const [twaInstance, setTwaInstance] = useState(null);
-  const { totalXP, isLoading, updateXP } = useXPManager(userId);
   const [activeTab, setActiveTab] = useState('daily-login');
+  
+  // Use the custom hook for XP management
+  const { totalXP, isLoading, updateXP } = useXPManager(userId);
 
-  // Initialize WebApp and get user ID
   useEffect(() => {
     try {
       const webApp = WebApp;
@@ -26,63 +59,89 @@ export default function TaskPage() {
 
   const handleTaskComplete = async (task) => {
     try {
+      if (task.type === 'partner' && task.url && twaInstance) {
+        twaInstance.openLink(task.url);
+      }
+
       const success = await updateXP(task.xpReward);
-      if (success && typeof window !== 'undefined' && window.Telegram?.WebApp) {
-        window.Telegram.WebApp.showPopup({
+      if (success && twaInstance) {
+        twaInstance.showPopup({
           title: 'Task Completed!',
-          buttons: [{
-            type: 'ok'
-          }]
+          message: `You earned ${task.xpReward} XP!`,
+          buttons: [{ type: 'ok' }]
         });
       }
     } catch (error) {
       console.error('Error completing task:', error);
+      twaInstance?.showPopup({
+        title: 'Error',
+        message: 'Failed to complete task. Please try again.',
+        buttons: [{ type: 'ok' }]
+      });
     }
   };
 
-  const tabs = [
-    { id: 'daily-login', label: 'Daily' },
-    { id: 'stacks', label: 'Stacks' },
-    { id: 'socials', label: 'Socials' }
-  ];
-
-  if (isLoading) return <div>Loading...</div>;
-
   return (
-    <div className="max-w-4xl mx-auto p-4">
-      {/* XP Display */}
-      <div className="bg-white rounded-lg p-4 shadow-md mb-6">
-        <h2 className="text-orange-600 font-bold">
-          Total XP: {totalXP || 0}
-        </h2>
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center animate-pulse">Loading...</div>
       </div>
+    }>
+      <SafeAreaContainer>
+        <div className="min-h-screen flex flex-col">
+          <main className="flex-grow p-4">
+            <div className="bg-neutral-900 bg-opacity-50 rounded-lg p-4 shadow-md mb-6">
+              <h2 className="text-orange-400 font-bold flex items-center gap-2">
+                <span>Total XP:</span>
+                <span className="text-xl">
+                  {isLoading ? '...' : totalXP?.toLocaleString() || 0}
+                </span>
+              </h2>
+            </div>
 
-      {/* Tab Navigation */}
-      <div className="flex mb-6 bg-white rounded-lg p-2 shadow-md">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 py-2 px-4 rounded-lg transition-colors ${
-              activeTab === tab.id
-                ? 'bg-orange-600 text-white'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+            <div className="bg-neutral-900 bg-opacity-50 rounded-lg shadow-md mb-6 p-2 overflow-hidden">
+              <div className="flex overflow-x-auto scrollbar-hide gap-2">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center justify-center gap-2 whitespace-nowrap px-4 py-2 rounded-lg transition-colors flex-shrink-0 min-w-[100px] ${
+                      activeTab === tab.id
+                        ? 'bg-orange-500 text-white'
+                        : 'text-gray-300 hover:bg-neutral-800'
+                    }`}
+                  >
+                    <span>{tab.icon}</span>
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-      {/* Task Lists */}
-      {userId && (
-        <div className="">
-          <TaskList
-            category={activeTab}
-            onTaskComplete={handleTaskComplete}
-          />
+            {userId && (
+              <Suspense fallback={<TaskListSkeleton />}>
+                <TaskList
+                  category={activeTab}
+                  onTaskComplete={handleTaskComplete}
+                />
+              </Suspense>
+            )}
+          </main>
+          <Suspense fallback={<div className="h-16" />}>
+            <Footer />
+          </Suspense>
         </div>
-      )}
-    </div>
+
+        <style jsx global>{`
+          .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
+          .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+          }
+        `}</style>
+      </SafeAreaContainer>
+    </Suspense>
   );
 }
