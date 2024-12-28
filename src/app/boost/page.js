@@ -3,9 +3,15 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Bolt, Zap } from 'lucide-react';
-import WebApp from '@twa-dev/sdk';
-import { applyCurrentTapBoost, applyMaxTapBoost, calculateBoostCost } from '@/api/firebase/fireFunctions';
+// Import WebApp dynamically to avoid SSR issues
+const WebApp = dynamic(() => import('@twa-dev/sdk'), {
+  ssr: false
+});
+
+import {boostFunctions} from '@/api/firebase/fireFunctions';
 import { useTapManager } from '@/api/firebase/fireFunctions';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/api/firebase/triggers';
 import BoostCard from '@/components/cards/BoostCard';
 
 const Footer = dynamic(() => import('@/components/Footer'), {
@@ -29,18 +35,44 @@ export default function BoostPage() {
   // Use the tap manager hook
   const { totalTaps, maxTaps, currentTaps, refreshMaxTaps } = useTapManager(userId);
 
-  // Initialize WebApp on mount
+  // Initialize WebApp and load boost stats
   useEffect(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const webApp = WebApp;
-        if (webApp.initDataUnsafe?.user?.id) {
-          setUserId(webApp.initDataUnsafe.user.id.toString());
+    const initializeApp = async () => {
+      try {
+        let uid = null;
+        
+        // Check if we're in the browser environment
+        if (typeof window !== 'undefined') {
+          const telegram = await import('@twa-dev/sdk');
+          if (telegram.default.initDataUnsafe?.user?.id) {
+            uid = telegram.default.initDataUnsafe.user.id.toString();
+            setUserId(uid);
+          }
         }
+
+        if (uid) {
+          // Load boost stats
+          try {
+            const userRef = doc(db, 'users', uid);
+            const userSnap = await getDoc(userRef);
+            
+            if (userSnap.exists()) {
+              const userData = userSnap.data();
+              setBoostStats({
+                currentTapBoostCount: userData.stats?.currentTapBoostCount || 0,
+                maxTapBoostCount: userData.stats?.maxTapBoostCount || 0
+              });
+            }
+          } catch (error) {
+            console.error('Error loading boost stats:', error);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing WebApp:', error);
       }
-    } catch (error) {
-      console.error('Error initializing WebApp:', error);
-    }
+    };
+
+    initializeApp();
   }, []);
 
   const handleCurrentTapBoost = async () => {
@@ -51,18 +83,25 @@ export default function BoostPage() {
     
     try {
       console.log('Attempting current tap boost for user:', userId);
-      const result = await applyCurrentTapBoost(userId);
+      const result = await boostFunctions.applyCurrentTapBoost(userId);
       console.log('Boost result:', result);
       
       if (result.success) {
         await refreshMaxTaps();
-        WebApp?.showPopup({
+        setBoostStats(prev => ({
+          ...prev,
+          currentTapBoostCount: (prev.currentTapBoostCount || 0) + 1
+        }));
+        // Use dynamic import for WebApp
+        const telegram = await import('@twa-dev/sdk');
+        telegram.default?.showPopup({
           message: result.message,
           buttons: [{ type: 'ok' }]
         });
       } else {
         setError(result.message);
-        WebApp?.showPopup({
+        const telegram = await import('@twa-dev/sdk');
+        telegram.default?.showPopup({
           message: result.message,
           buttons: [{ type: 'ok' }]
         });
@@ -83,18 +122,24 @@ export default function BoostPage() {
     
     try {
       console.log('Attempting max tap boost for user:', userId);
-      const result = await applyMaxTapBoost(userId);
+      const result = await boostFunctions.applyMaxTapBoost(userId);
       console.log('Boost result:', result);
       
       if (result.success) {
         await refreshMaxTaps();
-        WebApp?.showPopup({
+        setBoostStats(prev => ({
+          ...prev,
+          maxTapBoostCount: (prev.maxTapBoostCount || 0) + 1
+        }));
+        const telegram = await import('@twa-dev/sdk');
+        telegram.default?.showPopup({
           message: result.message,
           buttons: [{ type: 'ok' }]
         });
       } else {
         setError(result.message);
-        WebApp?.showPopup({
+        const telegram = await import('@twa-dev/sdk');
+        telegram.default?.showPopup({
           message: result.message,
           buttons: [{ type: 'ok' }]
         });
@@ -107,21 +152,8 @@ export default function BoostPage() {
     }
   };
 
-  const currentTapBoostCost = calculateBoostCost(boostStats.currentTapBoostCount);
-  const maxTapBoostCost = calculateBoostCost(boostStats.maxTapBoostCount);
-
-  // Debug logging
-  useEffect(() => {
-    if (userId) {
-      console.log('Debug Info:', {
-        userId,
-        currentTaps,
-        maxTaps,
-        totalTaps,
-        boostStats
-      });
-    }
-  }, [userId, currentTaps, maxTaps, totalTaps, boostStats]);
+  const currentTapBoostCost = boostFunctions.calculateBoostCost(boostStats.currentTapBoostCount);
+  const maxTapBoostCost = boostFunctions.calculateBoostCost(boostStats.maxTapBoostCount);
 
   return (
     <SafeAreaContainer>
