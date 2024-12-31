@@ -18,7 +18,7 @@ import { db } from "./triggers";
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 export const TAP_CONFIG = {
-  INACTIVITY_DELAY: 5000,
+  INACTIVITY_DELAY: 1000,
   REGEN_INTERVAL: 1000,
   REGEN_AMOUNT: 10,
   UPDATE_THRESHOLD: 50,
