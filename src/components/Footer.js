@@ -11,7 +11,7 @@ export default function Footer() {
         { href: "/boost", icon: Zap, label: "Boost" },
         { href: "/tasks", icon: DollarSign, label: "Earn" },
         { href: "/friends", icon: Users, label: "Friends" },
-        { href: "/claim", icon: User, label: "Profile" },
+        { href: "/claim", icon: User, label: "Leaderboard" },
     ];
 
     return (

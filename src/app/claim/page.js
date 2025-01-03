@@ -1,145 +1,170 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
+import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { db } from '@/api/firebase/triggers';
 import WebApp from '@twa-dev/sdk';
-import { Coins, Trophy, Wallet } from 'lucide-react';
-import Footer from '@/components/Footer';
-import { userFunctions } from '@/api/firebase/fireFunctions';
+import { Medal } from 'lucide-react';
+import dynamic from 'next/dynamic';
 
-const { fetchUserDetails } = userFunctions;
+// Dynamically import components
+const Footer = dynamic(() => import('@/components/Footer'), {
+  ssr: false,
+  loading: () => <div className="h-16" />
+});
 
-export default function ClaimPage() {
-  const [userId, setUserId] = useState(null);
-  const [userInfo, setUserInfo] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+const SafeAreaContainer = dynamic(() => import('@/components/SafeAreaContainer'), {
+  ssr: false
+});
 
-  useEffect(() => {
-    if (WebApp?.initDataUnsafe?.user?.id) {
-      setUserId(WebApp.initDataUnsafe.user.id);
+const LeaderboardCard = ({ rank, username, totalTaps, isCurrentUser }) => {
+  const getMedalColor = (rank) => {
+    switch (rank) {
+      case 1: return 'text-yellow-400';  // Gold
+      case 2: return 'text-gray-300';    // Silver
+      case 3: return 'text-amber-600';   // Bronze
+      default: return 'text-gray-500';
     }
-  }, []);
+  };
+
+  return (
+    <div className={`
+      p-4 rounded-lg mb-2 transition-all duration-200
+      ${isCurrentUser ? 'bg-orange-500 bg-opacity-20' : 'bg-neutral-800 bg-opacity-50'}
+    `}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`w-8 h-8 flex items-center justify-center rounded-full ${getMedalColor(rank)}`}>
+            {rank <= 3 ? (
+              <Medal size={20} />
+            ) : (
+              <span className="text-sm font-medium">{rank}</span>
+            )}
+          </div>
+          <div>
+            <span className="font-medium text-white">
+              {username || 'Anonymous User'}
+            </span>
+            {isCurrentUser && (
+              <span className="ml-2 text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full">
+                You
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-lg font-bold text-white">
+            {totalTaps.toLocaleString()}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const LeaderboardSkeleton = () => (
+  <div className="space-y-2 animate-pulse">
+    {[...Array(5)].map((_, i) => (
+      <div key={i} className="bg-neutral-800 bg-opacity-50 p-4 rounded-lg">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-neutral-700 rounded-full" />
+            <div className="h-4 w-32 bg-neutral-700 rounded" />
+          </div>
+          <div className="h-4 w-20 bg-neutral-700 rounded" />
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+
+
+export default function LeaderboardPage() {
+  const [leaderboardData, setLeaderboardData] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('allTime');
+  const currentUserId = WebApp.initDataUnsafe?.user?.id?.toString();
 
   useEffect(() => {
-    const getUserDetails = async () => {
-      if (!userId) return;
-
+    const fetchLeaderboardData = async () => {
+      setIsLoading(true);
       try {
-        setLoading(true);
-        const result = await fetchUserDetails(userId);
-        
-        if (result.success) {
-          setUserInfo(result.data);
-        } else {
-          setError(result.error);
-        }
-      } catch (err) {
-        setError('An unexpected error occurred');
+        const usersRef = collection(db, 'users');
+        const q = query(
+          usersRef,
+          orderBy('stats.totalTaps', 'desc'),
+          limit(100)
+        );
+
+        const querySnapshot = await getDocs(q);
+        const users = querySnapshot.docs.map((doc, index) => ({
+          id: doc.id,
+          rank: index + 1,
+          username: doc.data().username || doc.data().firstName,
+          totalTaps: doc.data().stats?.totalTaps || 0
+        }));
+
+        setLeaderboardData(users);
+      } catch (error) {
+        console.error('Error fetching leaderboard data:', error);
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
 
-    getUserDetails();
-  }, [userId]);
+    fetchLeaderboardData();
+  }, [activeTab]);
 
-  if (error) {
-    return (
-      <div className="min-h-screen  text-white p-4">
-        <div className="text-red-500 text-center">{error}</div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen  text-white p-4">
-        <div className="animate-pulse space-y-4">
-          <div className="h-32 bg-neutral-800 rounded-lg"></div>
-          <div className="h-24 bg-neutral-800 rounded-lg"></div>
-          <div className="h-24 bg-neutral-800 rounded-lg"></div>
-        </div>
-      </div>
-    );
-  }
+  const currentUserRank = leaderboardData.find(user => user.id === currentUserId)?.rank || 'N/A';
 
   return (
-    <div className="min-h-screen text-white flex flex-col">
-      {/* Profile Header */}
-      <div className="p-4 space-y-6 flex-grow">
-        <div className="text-center">
-          <div className="w-20 h-20 bg-neutral-700 rounded-full mx-auto mb-4 flex items-center justify-center">
-            <span className="text-2xl">
-              {userInfo?.firstName ? userInfo.firstName.charAt(0).toUpperCase() : '?'}
-            </span>
-          </div>
-          <h1 className="text-xl font-bold">
-            {userInfo?.firstName} {userInfo?.lastName}
-          </h1>
-          <p className="text-neutral-400">@{userInfo?.username}</p>
-        </div>
-
-        {/* Stats Section */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-neutral-900 bg-opacity-40 rounded-lg p-4">
-            <div className="flex items-center gap-3">
-              <Coins className="text-yellow-400" size={24} />
-              <div>
-                <p className="text-sm text-neutral-400">Total Taps</p>
-                <p className="text-lg font-bold">
-                  {userInfo?.stats.totalTaps.toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-neutral-900 bg-opacity-40 rounded-lg p-4">
-            <div className="flex items-center gap-3">
-              <Trophy className="text-yellow-400" size={24} />
-              <div>
-                <p className="text-sm text-neutral-400">Total XP</p>
-                <p className="text-lg font-bold">
-                  {userInfo?.stats.totalXP.toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Withdrawal Section */}
-        <div className="bg-neutral-900 bg-opacity-40 rounded-lg p-4">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Wallet className="text-yellow-400" size={24} />
-                <div>
-                  <p className="text-sm text-neutral-400">Available to Withdraw</p>
-                  <p className="text-lg font-bold">
-                    {((userInfo?.stats.totalTaps || 0) / 1000).toFixed(2)} PHT
-                  </p>
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center animate-pulse">Loading...</div>
+      </div>
+    }>
+      <SafeAreaContainer>
+        <div className="min-h-screen flex flex-col">
+          <main className="flex-grow">
+            <div className="max-w-lg mx-auto p-4">
+              {/* User's Current Rank */}
+              <div className="bg-neutral-100 text-neutral-900 rounded-lg p-4 mb-6">
+                <div className="text-sm text-black mb-1">Your Rank</div>
+                <div className="text-2xl font-bold text-neutral-600">
+                  {isLoading ? '...' : `#${currentUserRank}`}
                 </div>
               </div>
+
+              {/* Leaderboard List */}
+              <div className="space-y-2 mb-6">
+                {isLoading ? (
+                  <LeaderboardSkeleton />
+                ) : (
+                  leaderboardData.map((user) => (
+                    <LeaderboardCard
+                      key={user.id}
+                      rank={user.rank}
+                      username={user.username}
+                      totalTaps={user.totalTaps}
+                      isCurrentUser={user.id === currentUserId}
+                    />
+                  ))
+                )}
+              </div>
+
+              {!isLoading && leaderboardData.length === 0 && (
+                <div className="text-center py-8 text-gray-400">
+                  No data available
+                </div>
+              )}
             </div>
-            
-            <button
-              className="w-full bg-yellow-500 hover:bg-yellow-600 text-neutral-900 font-bold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={() => {
-                // Withdraw function will be implemented later
-                console.log('Withdraw clicked');
-              }}
-              disabled={(userInfo?.stats.totalTaps || 0) < 1000}
-            >
-              Withdraw PHT
-            </button>
-            
-            <p className="text-xs text-center text-neutral-500">
-              Minimum withdrawal: 1,000 Taps = 1 PHT
-            </p>
-          </div>
+          </main>
+          <Suspense fallback={<div className="h-16" />}>
+            <Footer />
+          </Suspense>
         </div>
-      </div>
-      
-      <Footer />
-    </div>
+      </SafeAreaContainer>
+    </Suspense>
   );
 }
