@@ -19,16 +19,15 @@ const BoostCard = ({
     <div className="flex justify-between items-center">
       <div className="flex-1">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-white">{icon}</span>
-          <span className="font-semibold text-sm text-white">{title}</span>
+          <h1 className="text-white">{icon}</h1>
+          <div className="flex flex-col font-semibold text-sm text-white">
+            <span>{title}</span>
+            <span>{cost.toLocaleString()} pts</span>
+          </div>
         </div>
-        <p className="text-xs text-gray-400">{description}</p>
       </div>
 
-      <div className="flex gap-2 items-center">
-        <span className="px-2 py-1 bg-orange-100 text-neutral-800 rounded-md text-xs font-medium">
-          {cost.toLocaleString()} taps
-        </span>
+      <div className="flex items-center">
         <div className={`${
           disabled || isLoading
             ? 'bg-neutral-700 text-neutral-400'

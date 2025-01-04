@@ -1,0 +1,20 @@
+export const TAP_CONFIG = {
+    INACTIVITY_DELAY: 1000,
+    REGEN_INTERVAL: 1000,
+    REGEN_AMOUNT: 10,
+    UPDATE_THRESHOLD: 50,
+    DEFAULT_MAX_TAPS: 2500
+  };
+  
+  export const BOOST_CONFIG = {
+    MAX_BOOST_LIMIT: 10000,
+    BASE_COST: 1000,
+    TAP_INCREASE: 500
+  };
+  
+  export const XP_CONFIG = {
+    REFERRAL_BONUS: {
+      REFERRER: 100,
+      REFERRED: 50
+    }
+  };

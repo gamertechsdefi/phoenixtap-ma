@@ -10,7 +10,7 @@ const Game = dynamic(() => import('@/components/Game'), {
 
 export default function Page() {
  return (
-   <Suspense fallback={<div>Loading...</div>}>
+   <Suspense>
      <Game />
    </Suspense>
  );

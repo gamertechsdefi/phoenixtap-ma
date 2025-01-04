@@ -3,16 +3,16 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Bolt, Zap } from 'lucide-react';
-// Import WebApp dynamically to avoid SSR issues
-const WebApp = dynamic(() => import('@twa-dev/sdk'), {
-  ssr: false
-});
-
-import {boostFunctions} from '@/api/firebase/fireFunctions';
-import { useTapManager } from '@/api/firebase/fireFunctions';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/api/firebase/triggers';
 import BoostCard from '@/components/cards/BoostCard';
+import { boostFunctions } from "@/api/firebase/functions/boostFunction";
+import { useTapManager } from '@/api/firebase/functions/userTapManager';
+
+// Dynamic imports
+const WebApp = dynamic(() => import('@twa-dev/sdk'), {
+  ssr: false
+});
 
 const Footer = dynamic(() => import('@/components/Footer'), {
   ssr: false,
@@ -23,36 +23,37 @@ const SafeAreaContainer = dynamic(() => import('@/components/SafeAreaContainer')
   ssr: false
 });
 
-export default function BoostPage() {
+function BoostPage() {
   const [userId, setUserId] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [boostStats, setBoostStats] = useState({
     currentTapBoostCount: 0,
     maxTapBoostCount: 0
   });
+  const [isCurrentTapBoosting, setIsCurrentTapBoosting] = useState(false);
+  const [isMaxTapBoosting, setIsMaxTapBoosting] = useState(false);
+  const [error, setError] = useState(null);
 
   // Use the tap manager hook
-  const { totalTaps, maxTaps, currentTaps, refreshMaxTaps } = useTapManager(userId);
+  const { 
+    totalTaps, 
+    maxTaps, 
+    currentTaps, 
+    refreshMaxTaps,
+    refreshTaps
+  } = useTapManager(userId);
 
-  // Initialize WebApp and load boost stats
+  // Initialize and load boost stats
   useEffect(() => {
-    const initializeApp = async () => {
+    async function initializeApp() {
       try {
-        let uid = null;
-        
-        // Check if we're in the browser environment
         if (typeof window !== 'undefined') {
           const telegram = await import('@twa-dev/sdk');
-          if (telegram.default.initDataUnsafe?.user?.id) {
-            uid = telegram.default.initDataUnsafe.user.id.toString();
+          const webApp = telegram.default;
+          
+          if (webApp.initDataUnsafe?.user?.id) {
+            const uid = String(webApp.initDataUnsafe.user.id);
             setUserId(uid);
-          }
-        }
-
-        if (uid) {
-          // Load boost stats
-          try {
+            
             const userRef = doc(db, 'users', uid);
             const userSnap = await getDoc(userRef);
             
@@ -63,36 +64,39 @@ export default function BoostPage() {
                 maxTapBoostCount: userData.stats?.maxTapBoostCount || 0
               });
             }
-          } catch (error) {
-            console.error('Error loading boost stats:', error);
           }
         }
-      } catch (error) {
-        console.error('Error initializing WebApp:', error);
+      } catch (err) {
+        console.error('Error in initialization:', err);
+        setError('Failed to initialize app');
       }
-    };
+    }
 
     initializeApp();
   }, []);
 
-  const handleCurrentTapBoost = async () => {
-    if (!userId || isLoading) return;
+  async function handleCurrentTapBoost() {
+    if (!userId || isCurrentTapBoosting) return;
     
-    setIsLoading(true);
+    setIsCurrentTapBoosting(true);
     setError(null);
     
     try {
-      console.log('Attempting current tap boost for user:', userId);
       const result = await boostFunctions.applyCurrentTapBoost(userId);
-      console.log('Boost result:', result);
       
       if (result.success) {
-        await refreshMaxTaps();
+        // Update local state
         setBoostStats(prev => ({
           ...prev,
           currentTapBoostCount: (prev.currentTapBoostCount || 0) + 1
         }));
-        // Use dynamic import for WebApp
+
+        // Refresh all tap states
+        await Promise.all([
+          refreshMaxTaps(),
+          refreshTaps && refreshTaps()
+        ]);
+
         const telegram = await import('@twa-dev/sdk');
         telegram.default?.showPopup({
           message: result.message,
@@ -106,31 +110,36 @@ export default function BoostPage() {
           buttons: [{ type: 'ok' }]
         });
       }
-    } catch (error) {
-      console.error('Boost error:', error);
+    } catch (err) {
+      console.error('Boost error:', err);
       setError('Failed to apply boost');
     } finally {
-      setIsLoading(false);
+      setIsCurrentTapBoosting(false);
     }
-  };
+  }
 
-  const handleMaxTapBoost = async () => {
-    if (!userId || isLoading) return;
+  async function handleMaxTapBoost() {
+    if (!userId || isMaxTapBoosting) return;
     
-    setIsLoading(true);
+    setIsMaxTapBoosting(true);
     setError(null);
     
     try {
-      console.log('Attempting max tap boost for user:', userId);
       const result = await boostFunctions.applyMaxTapBoost(userId);
-      console.log('Boost result:', result);
       
       if (result.success) {
-        await refreshMaxTaps();
+        // Update local state
         setBoostStats(prev => ({
           ...prev,
           maxTapBoostCount: (prev.maxTapBoostCount || 0) + 1
         }));
+
+        // Refresh all tap states
+        await Promise.all([
+          refreshMaxTaps(),
+          refreshTaps && refreshTaps()
+        ]);
+        
         const telegram = await import('@twa-dev/sdk');
         telegram.default?.showPopup({
           message: result.message,
@@ -144,13 +153,13 @@ export default function BoostPage() {
           buttons: [{ type: 'ok' }]
         });
       }
-    } catch (error) {
-      console.error('Boost error:', error);
+    } catch (err) {
+      console.error('Boost error:', err);
       setError('Failed to apply boost');
     } finally {
-      setIsLoading(false);
+      setIsMaxTapBoosting(false);
     }
-  };
+  }
 
   const currentTapBoostCost = boostFunctions.calculateBoostCost(boostStats.currentTapBoostCount);
   const maxTapBoostCost = boostFunctions.calculateBoostCost(boostStats.maxTapBoostCount);
@@ -159,6 +168,7 @@ export default function BoostPage() {
     <SafeAreaContainer>
       <div className="min-h-screen flex flex-col">
         <main className="flex-grow p-4">
+          {/* Points Display */}
           <div className="bg-neutral-900 bg-opacity-50 rounded-lg p-4 shadow-md mb-6">
             <h2 className="text-orange-400 font-bold flex items-center gap-2">
               <span>Total Points:</span>
@@ -166,28 +176,35 @@ export default function BoostPage() {
             </h2>
           </div>
 
-          <div className="space-y-4">
+          {/* Boost Cards */}
+          <div className="space-y-3">
             <BoostCard
               title="Refill Current Taps"
-              description={`Fill your taps back to maximum (${maxTaps?.toLocaleString()})`}
               cost={currentTapBoostCost}
               onBoost={handleCurrentTapBoost}
-              isLoading={isLoading}
-              disabled={isLoading || totalTaps < currentTapBoostCost || currentTaps >= maxTaps}
+              isLoading={isCurrentTapBoosting}
+              disabled={
+                isCurrentTapBoosting || 
+                totalTaps < currentTapBoostCost || 
+                currentTaps >= maxTaps
+              }
               icon={<Bolt className="h-5 w-5" />}
             />
 
             <BoostCard
               title="Increase Max Taps"
-              description="Permanently increase your maximum taps by 500"
               cost={maxTapBoostCost}
               onBoost={handleMaxTapBoost}
-              isLoading={isLoading}
-              disabled={isLoading || totalTaps < maxTapBoostCost}
+              isLoading={isMaxTapBoosting}
+              disabled={
+                isMaxTapBoosting || 
+                totalTaps < maxTapBoostCost
+              }
               icon={<Zap className="h-5 w-5" />}
             />
           </div>
 
+          {/* Error Display */}
           {error && (
             <div className="mt-4 p-4 bg-red-100 text-red-600 rounded-lg">
               {error}
@@ -199,3 +216,5 @@ export default function BoostPage() {
     </SafeAreaContainer>
   );
 }
+
+export default BoostPage;

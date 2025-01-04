@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import WebApp from '@twa-dev/sdk';
-import { referralSystem } from '@/api/firebase/fireFunctions';
+import { referralSystem } from '@/api/firebase/functions/referralSystem';
 import {motion} from "framer-motion";
 
 const SafeAreaContainer = dynamic(() => import('@/components/SafeAreaContainer'), {

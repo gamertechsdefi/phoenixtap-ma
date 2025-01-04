@@ -8,7 +8,7 @@ import tapImage from "@/app/images/clicker.png";
 import UserProfile from '@/components/UserProfile';
 import Footer from '@/components/Footer';
 import { initializeUser } from '@/api/firebase/triggers';
-import { useTapManager } from '@/api/firebase/fireFunctions';
+import { useTapManager } from '@/api/firebase/functions/userTapManager';
 import SafeAreaContainer from '@/components/SafeAreaContainer';
 
 export default function Game() {

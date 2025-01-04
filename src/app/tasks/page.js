@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import WebApp from '@twa-dev/sdk';
-import { useXPManager } from '@/api/firebase/fireFunctions';
+import { useXPManager } from "@/api/firebase/functions/useXPManager";  // Changed this line
 
 const TaskList = dynamic(() => import('@/components/TaskLink'), {
   ssr: false,
