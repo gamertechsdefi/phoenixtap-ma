@@ -21,23 +21,37 @@ export default function Game() {
   const [tapAnimation, setTapAnimation] = useState(false);
 
   const [userId, setUserId] = useState(null);
+  const [WebApp, setWebApp] = useState(null); // To store the dynamically loaded SDK
+
+  // Dynamically import Telegram SDK
+  useEffect(() => {
+    const loadSDK = async () => {
+      try {
+        const WebAppSDK = (await import('@twa-dev/sdk')).default;
+        setWebApp(WebAppSDK);
+      } catch (err) {
+        console.error('Failed to load Telegram SDK:', err);
+        setError('Failed to initialize Telegram SDK.');
+      }
+    };
+    loadSDK();
+  }, []);
+
   const { current, totalTaps, pendingTotalTaps, handleTap, maxTaps } = useTapManager(userId || '');
 
   useEffect(() => {
     const init = async () => {
       try {
-        const WebApp = (await import('@twa-dev/sdk')).default;
-  
-        if (!WebApp) throw new Error("Run this app in a Telegram environment");
-  
+        if (!WebApp) return;
+
         WebApp.ready();
         console.log("WebApp.initDataUnsafe:", WebApp.initDataUnsafe);
-  
+
         const user = WebApp.initDataUnsafe?.user;
         if (!user) {
           throw new Error("User data not available. Please reopen this app in Telegram.");
         }
-  
+
         setUserId(user.id);
         await initializeUser(user);
         setIsLoading(false);
@@ -47,10 +61,15 @@ export default function Game() {
         setIsLoading(false);
       }
     };
-  
+
     init();
+  }, [WebApp]);
+
+  const triggerTapAnimation = useCallback(() => {
+    setTapAnimation(true);
+    const timer = setTimeout(() => setTapAnimation(false), 150);
+    return () => clearTimeout(timer);
   }, []);
-  
 
   const onTap = useCallback(async () => {
     if (isTapping || isLoading || current <= 0) return;
@@ -83,14 +102,14 @@ export default function Game() {
 
   return (
     <SafeAreaContainer>
-      <div className='min-h-screen flex flex-col'>
-        <main className='flex-grow'>
+      <div className="min-h-screen flex flex-col">
+        <main className="flex-grow">
           <UserProfile />
 
-          <div className='flex flex-col items-center px-4 max-w-md mx-auto'>
-            <div className='text-center mb-6'>
-              <h2 className='text-lg font-medium text-gray-300'>Total Taps</h2>
-              <h1 className='text-4xl font-bold text-[#f9f9f9]'>{totalTaps}</h1>
+          <div className="flex flex-col items-center px-4 max-w-md mx-auto">
+            <div className="text-center mb-6">
+              <h2 className="text-lg font-medium text-gray-300">Total Taps</h2>
+              <h1 className="text-4xl font-bold text-[#f9f9f9]">{totalTaps}</h1>
             </div>
 
             <button
@@ -118,7 +137,7 @@ export default function Game() {
                 <span>{current}/{maxTaps}</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
-                <div 
+                <div
                   className="bg-orange-500 h-2.5 rounded-full transition-all duration-300 ease-out"
                   style={{ width: `${progressPercentage}%` }}
                 />
