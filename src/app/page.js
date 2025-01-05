@@ -1,14 +1,29 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import LoadingState from '@/components/LoadingState';
+import WebApp from '@twa-dev/sdk';
+import { initializeUser } from '@/api/firebase/triggers';
 
 export default function Page() {
-  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
+    const init = async () => {
+      try {
+        WebApp.ready();
+        const user = WebApp.initDataUnsafe?.user;
+        
+        if (user?.id) {
+          await initializeUser(user);
+        }
+      } catch (error) {
+        console.error('Initialization error:', error);
+      }
+    };
+
+    init();
+
     const timer = setTimeout(() => {
       router.push('/tap');
     }, 5000);

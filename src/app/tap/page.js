@@ -1,82 +1,38 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import tapImage from "@/app/images/clicker.png";
-import { initializeUser } from '@/api/firebase/triggers';
 import { useTapManager } from '@/api/firebase/functions/userTapManager';
 
-// Import WebApp but make it not available during SSR
-const WebApp = dynamic(
-  () => import('@twa-dev/sdk').then(mod => mod.default),
-  { ssr: false }
-);
-
-// Dynamic component imports
-const UserProfile = dynamic(() => import('@/components/UserProfile'), {
-  ssr: false,
-  loading: () => <div className="h-16 animate-pulse bg-neutral-800 rounded-lg" />
-});
-
-const Footer = dynamic(() => import('@/components/Footer'), {
-  ssr: false,
-  loading: () => <div className="h-16" />
-});
-
-const SafeAreaContainer = dynamic(() => import('@/components/SafeAreaContainer'), {
-  ssr: false
-});
+// Dynamic imports with SSR disabled
+const WebApp = dynamic(() => import('@twa-dev/sdk'), { ssr: false });
+const UserProfile = dynamic(() => import('@/components/UserProfile'), { ssr: false });
+const Footer = dynamic(() => import('@/components/Footer'), { ssr: false });
+const SafeAreaContainer = dynamic(() => import('@/components/SafeAreaContainer'), { ssr: false });
 
 export default function Game() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [isTapping, setIsTapping] = useState(false);
   const [tapAnimation, setTapAnimation] = useState(false);
   const [userId, setUserId] = useState(null);
 
-  const { current, totalTaps, handleTap, maxTaps } = useTapManager(userId);
-
-  // Initialize WebApp and user
+  // Initialize user ID from WebApp
   useEffect(() => {
-    let mounted = true;
-
-    const initializeWebApp = async () => {
+    const initUser = async () => {
       try {
-        // Wait for WebApp module to load
-        const twa = await import('@twa-dev/sdk');
-        const telegram = twa.default;
-
-        // Mark as ready
-        telegram.ready();
-
-        // Get user data
-        const user = telegram.initDataUnsafe?.user;
-        if (!user?.id) {
-          throw new Error("User data not available");
-        }
-
-        // Set user ID and initialize
-        if (mounted) {
-          setUserId(user.id);
-          await initializeUser(user);
-          setIsLoading(false);
-        }
+        const telegram = (await import('@twa-dev/sdk')).default;
+        const uid = telegram.initDataUnsafe?.user?.id;
+        if (uid) setUserId(uid);
       } catch (err) {
-        console.error("Initialization error:", err);
-        if (mounted) {
-          setError(err.message);
-          setIsLoading(false);
-        }
+        console.error('Error getting user ID:', err);
       }
     };
 
-    initializeWebApp();
-
-    return () => {
-      mounted = false;
-    };
+    initUser();
   }, []);
+
+  const { current, totalTaps, handleTap, maxTaps } = useTapManager(userId);
 
   const triggerTapAnimation = useCallback(() => {
     setTapAnimation(true);
@@ -85,33 +41,22 @@ export default function Game() {
   }, []);
 
   const onTap = useCallback(async () => {
-    if (isTapping || isLoading || current <= 0) return;
+    if (isTapping || current <= 0) return;
 
     setIsTapping(true);
     triggerTapAnimation();
 
     try {
-      const success = await handleTap();
-      if (!success) console.log('Tap failed: system is recharging or limit reached');
+      await handleTap();
     } catch (error) {
       console.error('Tap error:', error);
     } finally {
       setTimeout(() => setIsTapping(false), 50);
     }
-  }, [isTapping, isLoading, current, handleTap, triggerTapAnimation]);
+  }, [isTapping, current, handleTap, triggerTapAnimation]);
 
-  const isButtonDisabled = isTapping || isLoading || current <= 0;
+  const isButtonDisabled = isTapping || current <= 0;
   const progressPercentage = maxTaps ? (current / maxTaps) * 100 : 0;
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-red-500 p-4 text-center bg-red-100 rounded-lg max-w-sm mx-auto">
-          {error}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <SafeAreaContainer>
