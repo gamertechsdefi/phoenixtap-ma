@@ -4,66 +4,66 @@ import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import tapImage from "@/app/images/clicker.png";
+import { initializeUser } from '@/api/firebase/triggers';
+import { useTapManager } from '@/api/firebase/functions/userTapManager';
 
-// Dynamically import components
-const UserProfile = dynamic(() => import('@/components/UserProfile'), { ssr: false });
-const Footer = dynamic(() => import('@/components/Footer'), { ssr: false });
-const SafeAreaContainer = dynamic(() => import('@/components/SafeAreaContainer'), { ssr: false });
+// Dynamic imports
+const WebApp = dynamic(() => import('@twa-dev/sdk'), {
+  ssr: false
+});
 
-// Dynamically import API functions
-const initializeUser = dynamic(() => import('@/api/firebase/triggers').then(mod => mod.initializeUser), { ssr: false });
-const useTapManager = dynamic(() => import('@/api/firebase/functions/userTapManager').then(mod => mod.useTapManager), { ssr: false });
+const UserProfile = dynamic(() => import('@/components/UserProfile'), {
+  ssr: false,
+  loading: () => <div className="h-16 animate-pulse bg-neutral-800 rounded-lg" />
+});
+
+const Footer = dynamic(() => import('@/components/Footer'), {
+  ssr: false,
+  loading: () => <div className="h-16" />
+});
+
+const SafeAreaContainer = dynamic(() => import('@/components/SafeAreaContainer'), {
+  ssr: false
+});
 
 export default function Game() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isTapping, setIsTapping] = useState(false);
   const [tapAnimation, setTapAnimation] = useState(false);
-
   const [userId, setUserId] = useState(null);
-  const [WebApp, setWebApp] = useState(null); // To store the dynamically loaded SDK
 
-  // Dynamically import Telegram SDK
+  // Get tap manager state after userId is set
+  const { current, totalTaps, handleTap, maxTaps } = useTapManager(userId);
+
+  // Initialize WebApp and get user ID
   useEffect(() => {
-    const loadSDK = async () => {
+    const initializeWebApp = async () => {
       try {
-        const WebAppSDK = (await import('@twa-dev/sdk')).default;
-        setWebApp(WebAppSDK);
-      } catch (err) {
-        console.error('Failed to load Telegram SDK:', err);
-        setError('Failed to initialize Telegram SDK.');
-      }
-    };
-    loadSDK();
-  }, []);
-
-  const { current, totalTaps, pendingTotalTaps, handleTap, maxTaps } = useTapManager(userId || '');
-
-  useEffect(() => {
-    const init = async () => {
-      try {
-        if (!WebApp) return;
-
-        WebApp.ready();
-        console.log("WebApp.initDataUnsafe:", WebApp.initDataUnsafe);
-
-        const user = WebApp.initDataUnsafe?.user;
-        if (!user) {
-          throw new Error("User data not available. Please reopen this app in Telegram.");
+        if (typeof window !== 'undefined') {
+          const telegram = await import('@twa-dev/sdk');
+          const webApp = telegram.default;
+          
+          if (!webApp) throw new Error("Run this app in a telegram environment");
+          
+          webApp.ready();
+          if (webApp.initDataUnsafe?.user?.id) {
+            setUserId(webApp.initDataUnsafe.user.id);
+            await initializeUser(webApp.initDataUnsafe.user);
+          } else {
+            throw new Error("User data not available");
+          }
+          setIsLoading(false);
         }
-
-        setUserId(user.id);
-        await initializeUser(user);
-        setIsLoading(false);
-      } catch (err) {
-        console.error("Initialization error:", err);
-        setError(err.message || 'Unknown error occurred');
+      } catch (error) {
+        console.error("Initialization error:", error);
+        setError(error.message);
         setIsLoading(false);
       }
     };
 
-    init();
-  }, [WebApp]);
+    initializeWebApp();
+  }, []);
 
   const triggerTapAnimation = useCallback(() => {
     setTapAnimation(true);
@@ -80,8 +80,8 @@ export default function Game() {
     try {
       const success = await handleTap();
       if (!success) console.log('Tap failed: system is recharging or limit reached');
-    } catch (err) {
-      console.error('Tap error:', err);
+    } catch (error) {
+      console.error('Tap error:', error);
     } finally {
       setTimeout(() => setIsTapping(false), 50);
     }
@@ -102,14 +102,14 @@ export default function Game() {
 
   return (
     <SafeAreaContainer>
-      <div className="min-h-screen flex flex-col">
-        <main className="flex-grow">
+      <div className='min-h-screen flex flex-col'>
+        <main className='flex-grow'>
           <UserProfile />
 
-          <div className="flex flex-col items-center px-4 max-w-md mx-auto">
-            <div className="text-center mb-6">
-              <h2 className="text-lg font-medium text-gray-300">Total Taps</h2>
-              <h1 className="text-4xl font-bold text-[#f9f9f9]">{totalTaps}</h1>
+          <div className='flex flex-col items-center px-4 max-w-md mx-auto'>
+            <div className='text-center mb-6'>
+              <h2 className='text-lg font-medium text-gray-300'>Total Taps</h2>
+              <h1 className='text-4xl font-bold text-[#f9f9f9]'>{totalTaps?.toLocaleString()}</h1>
             </div>
 
             <button
@@ -133,11 +133,11 @@ export default function Game() {
 
             <div className="mt-8 w-full">
               <div className="flex justify-between text-sm text-gray-600 mb-2">
-                <span>Available Taps</span>
-                <span>{current}/{maxTaps}</span>
+                <span>Available Energy</span>
+                <span>{current?.toLocaleString() || 0}/{maxTaps?.toLocaleString() || 0}</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
-                <div
+                <div 
                   className="bg-orange-500 h-2.5 rounded-full transition-all duration-300 ease-out"
                   style={{ width: `${progressPercentage}%` }}
                 />
@@ -146,12 +146,12 @@ export default function Game() {
 
             {current === 0 && (
               <div className="text-orange-500 mt-4 text-sm font-medium animate-pulse">
-                Recharging taps...
+                Recharging energy...
               </div>
             )}
             {current === maxTaps && (
               <div className="text-green-500 mt-4 text-sm font-medium">
-                Taps fully charged!
+                Energy fully charged!
               </div>
             )}
           </div>
