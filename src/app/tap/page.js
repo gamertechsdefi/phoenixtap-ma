@@ -7,11 +7,13 @@ import tapImage from "@/app/images/clicker.png";
 import { initializeUser } from '@/api/firebase/triggers';
 import { useTapManager } from '@/api/firebase/functions/userTapManager';
 
-// Dynamic imports
-const WebApp = dynamic(() => import('@twa-dev/sdk'), {
-  ssr: false
-});
+// Import WebApp but make it not available during SSR
+const WebApp = dynamic(
+  () => import('@twa-dev/sdk').then(mod => mod.default),
+  { ssr: false }
+);
 
+// Dynamic component imports
 const UserProfile = dynamic(() => import('@/components/UserProfile'), {
   ssr: false,
   loading: () => <div className="h-16 animate-pulse bg-neutral-800 rounded-lg" />
@@ -33,36 +35,47 @@ export default function Game() {
   const [tapAnimation, setTapAnimation] = useState(false);
   const [userId, setUserId] = useState(null);
 
-  // Get tap manager state after userId is set
   const { current, totalTaps, handleTap, maxTaps } = useTapManager(userId);
 
-  // Initialize WebApp and get user ID
+  // Initialize WebApp and user
   useEffect(() => {
+    let mounted = true;
+
     const initializeWebApp = async () => {
       try {
-        if (typeof window !== 'undefined') {
-          const telegram = await import('@twa-dev/sdk');
-          const webApp = telegram.default;
-          
-          if (!webApp) throw new Error("Run this app in a telegram environment");
-          
-          webApp.ready();
-          if (webApp.initDataUnsafe?.user?.id) {
-            setUserId(webApp.initDataUnsafe.user.id);
-            await initializeUser(webApp.initDataUnsafe.user);
-          } else {
-            throw new Error("User data not available");
-          }
+        // Wait for WebApp module to load
+        const twa = await import('@twa-dev/sdk');
+        const telegram = twa.default;
+
+        // Mark as ready
+        telegram.ready();
+
+        // Get user data
+        const user = telegram.initDataUnsafe?.user;
+        if (!user?.id) {
+          throw new Error("User data not available");
+        }
+
+        // Set user ID and initialize
+        if (mounted) {
+          setUserId(user.id);
+          await initializeUser(user);
           setIsLoading(false);
         }
-      } catch (error) {
-        console.error("Initialization error:", error);
-        setError(error.message);
-        setIsLoading(false);
+      } catch (err) {
+        console.error("Initialization error:", err);
+        if (mounted) {
+          setError(err.message);
+          setIsLoading(false);
+        }
       }
     };
 
     initializeWebApp();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const triggerTapAnimation = useCallback(() => {
