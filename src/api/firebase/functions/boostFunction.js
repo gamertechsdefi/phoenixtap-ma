@@ -1,19 +1,21 @@
 import { doc, getDoc, updateDoc, increment, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/api/firebase/triggers';
-import { BOOST_CONFIG } from '@/api/firebase/constants';
+import { db } from '../triggers';
+import { BOOST_CONFIG } from '../constants';
 
-export const calculateBoostCost = (boostCount) => {
+const calculateBoostCost = (boostCount) => {
   if (boostCount === 0) return BOOST_CONFIG.BASE_COST;
   return BOOST_CONFIG.BASE_COST * Math.pow(2, boostCount);
 };
 
-export const applyCurrentTapBoost = async (userId) => {
+const applyCurrentTapBoost = async (userId) => {
+  console.log('Starting current tap boost for user:', userId);
+  
   try {
     if (!userId) {
       return { success: false, message: 'No user ID provided' };
     }
 
-    const userRef = doc(db, 'users', userId);
+    const userRef = doc(db, 'users', String(userId));
     const userSnap = await getDoc(userRef);
     
     if (!userSnap.exists()) {
@@ -21,9 +23,15 @@ export const applyCurrentTapBoost = async (userId) => {
     }
 
     const userData = userSnap.data();
-    const { totalTaps, currentTapBoostCount, currentTaps } = userData.stats || {};
-    const maxTaps = userData.energy?.max || BOOST_CONFIG.DEFAULT_MAX_TAPS;
-    const boostCost = calculateBoostCost(currentTapBoostCount || 0);
+    console.log('User data before boost:', userData);
+
+    const totalTaps = userData.stats?.totalTaps || 0;
+    const currentTapBoostCount = userData.stats?.currentTapBoostCount || 0;
+    const currentEnergy = userData.energy?.current || 0;
+    const maxEnergy = userData.energy?.max || BOOST_CONFIG.DEFAULT_MAX_TAPS;
+    
+    const boostCost = calculateBoostCost(currentTapBoostCount);
+    console.log('Boost state:', { totalTaps, currentTapBoostCount, currentEnergy, maxEnergy, boostCost });
 
     if (totalTaps < boostCost) {
       return { 
@@ -32,45 +40,54 @@ export const applyCurrentTapBoost = async (userId) => {
       };
     }
 
-    if (currentTaps >= maxTaps) {
+    if (currentEnergy >= maxEnergy) {
       return {
         success: false,
-        message: 'Taps are already at maximum capacity'
+        message: 'Energy is already at maximum capacity'
       };
     }
 
-    const refillAmount = maxTaps - currentTaps;
-
-    await updateDoc(userRef, {
-      'stats.currentTaps': maxTaps,
+    const updateData = {
+      'energy.current': maxEnergy,
       'stats.totalTaps': increment(-boostCost),
       'stats.currentTapBoostCount': increment(1),
       lastUpdated: serverTimestamp()
-    });
+    };
+
+    console.log('Applying update:', updateData);
+    await updateDoc(userRef, updateData);
+
+    // Verify the update was successful
+    const verifySnap = await getDoc(userRef);
+    const updatedData = verifySnap.data();
+    console.log('User data after boost:', updatedData);
 
     return { 
       success: true, 
-      message: `Successfully refilled ${refillAmount.toLocaleString()} taps`,
+      message: `Successfully refilled energy to ${maxEnergy}`,
       stats: {
-        currentTapBoostCount: (currentTapBoostCount || 0) + 1,
-        maxTaps,
-        totalTaps: totalTaps - boostCost
+        currentTapBoostCount: currentTapBoostCount + 1,
+        totalTaps: totalTaps - boostCost,
+        current: maxEnergy,
+        maxTaps: maxEnergy
       }
     };
 
   } catch (error) {
     console.error('Error applying current tap boost:', error);
-    return { success: false, message: 'Error applying boost' };
+    return { success: false, message: 'Error applying boost: ' + error.message };
   }
 };
 
-export const applyMaxTapBoost = async (userId) => {
+const applyMaxTapBoost = async (userId) => {
+  console.log('Starting max tap boost for user:', userId);
+  
   try {
     if (!userId) {
       return { success: false, message: 'No user ID provided' };
     }
 
-    const userRef = doc(db, 'users', userId);
+    const userRef = doc(db, 'users', String(userId));
     const userSnap = await getDoc(userRef);
     
     if (!userSnap.exists()) {
@@ -78,10 +95,15 @@ export const applyMaxTapBoost = async (userId) => {
     }
 
     const userData = userSnap.data();
-    const { totalTaps, maxTapBoostCount } = userData.stats || {};
+    console.log('User data before boost:', userData);
+
+    const totalTaps = userData.stats?.totalTaps || 0;
+    const maxTapBoostCount = userData.stats?.maxTapBoostCount || 0;
     const currentMax = userData.energy?.max || BOOST_CONFIG.DEFAULT_MAX_TAPS;
+    const currentEnergy = userData.energy?.current || 0;
     
-    const boostCost = calculateBoostCost(maxTapBoostCount || 0);
+    const boostCost = calculateBoostCost(maxTapBoostCount);
+    console.log('Boost state:', { totalTaps, maxTapBoostCount, currentMax, boostCost });
 
     if (totalTaps < boostCost) {
       return { 
@@ -93,37 +115,48 @@ export const applyMaxTapBoost = async (userId) => {
     if (currentMax + BOOST_CONFIG.TAP_INCREASE > BOOST_CONFIG.MAX_BOOST_LIMIT) {
       return {
         success: false,
-        message: `Maximum tap capacity limit (${BOOST_CONFIG.MAX_BOOST_LIMIT.toLocaleString()}) would be exceeded`
+        message: `Maximum energy capacity limit (${BOOST_CONFIG.MAX_BOOST_LIMIT.toLocaleString()}) would be exceeded`
       };
     }
 
     const newMaxTaps = currentMax + BOOST_CONFIG.TAP_INCREASE;
 
-    await updateDoc(userRef, {
+    const updateData = {
       'energy.max': newMaxTaps,
-      'stats.currentTaps': increment(BOOST_CONFIG.TAP_INCREASE),
+      'energy.current': newMaxTaps,
       'stats.totalTaps': increment(-boostCost),
       'stats.maxTapBoostCount': increment(1),
       lastUpdated: serverTimestamp()
-    });
+    };
+
+    console.log('Applying update:', updateData);
+    await updateDoc(userRef, updateData);
+
+    // Verify the update was successful
+    const verifySnap = await getDoc(userRef);
+    const updatedData = verifySnap.data();
+    console.log('User data after boost:', updatedData);
 
     return { 
       success: true, 
-      message: `Maximum tap capacity increased by ${BOOST_CONFIG.TAP_INCREASE.toLocaleString()}`,
+      message: `Maximum energy capacity increased by ${BOOST_CONFIG.TAP_INCREASE.toLocaleString()}`,
       stats: {
-        maxTapBoostCount: (maxTapBoostCount || 0) + 1,
-        maxTaps: newMaxTaps,
-        totalTaps: totalTaps - boostCost
+        maxTapBoostCount: maxTapBoostCount + 1,
+        totalTaps: totalTaps - boostCost,
+        current: newMaxTaps,
+        maxTaps: newMaxTaps
       }
     };
 
   } catch (error) {
     console.error('Error applying max tap boost:', error);
-    return { success: false, message: 'Error applying boost' };
+    return { success: false, message: 'Error applying boost: ' + error.message };
   }
 };
 
-export const boostFunctions = {
+export { calculateBoostCost, applyCurrentTapBoost, applyMaxTapBoost };
+
+export default {
   calculateBoostCost,
   applyCurrentTapBoost,
   applyMaxTapBoost

@@ -5,11 +5,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 export const createTapManager = () => {
     const state = {
-      currentTaps: 0,
+      current: 0,
       maxTaps: TAP_CONFIG.DEFAULT_MAX_TAPS,
       totalTaps: 0,
       isRegenerating: false,
-      pendingTotalTaps: 0,
       lastUpdateTaps: 0,
       tapMultiplier: 1,
       lastTapTime: Date.now()
@@ -25,23 +24,21 @@ export const createTapManager = () => {
   
     const updateBackend = async (userId) => {
       if (!userId) return;
-  
+    
       try {
         console.log('Updating backend with state:', {
-          currentTaps: state.currentTaps,
+          current: state.current,
           totalTaps: state.totalTaps,
-          pendingTotalTaps: state.pendingTotalTaps
         });
-  
+    
         const userRef = doc(db, 'users', String(userId));
         await updateDoc(userRef, {
-          'stats.currentTaps': state.currentTaps,
+          'energy.current': state.current,
           'stats.totalTaps': state.totalTaps,
-          'stats.pendingTotalTaps': state.pendingTotalTaps,
           lastUpdated: serverTimestamp()
         });
         
-        state.lastUpdateTaps = state.currentTaps;
+        state.lastUpdateTaps = state.current;
         console.log('Backend update successful');
       } catch (error) {
         console.error('Error updating backend:', error);
@@ -49,7 +46,11 @@ export const createTapManager = () => {
     };
   
     const startRegeneration = (userId) => {
-      if (regenInterval || state.isRegenerating || state.currentTaps >= state.maxTaps) {
+      // Exit if any of these conditions are met
+      if (regenInterval || 
+          state.isRegenerating || 
+          state.current >= state.maxTaps || 
+          state.current > 0) {  // Add this check to prevent regeneration if not at 0
         return;
       }
       
@@ -60,27 +61,27 @@ export const createTapManager = () => {
       
       console.log('Starting regeneration process');
       state.isRegenerating = true;
-      state.lastUpdateTaps = state.currentTaps;
-  
+      state.lastUpdateTaps = state.current;
+    
       regenInterval = setInterval(async () => {
-        if (state.currentTaps < state.maxTaps) {
-          const previousTaps = state.currentTaps;
-          state.currentTaps += TAP_CONFIG.REGEN_AMOUNT;
+        if (state.current < state.maxTaps) {
+          const previousTaps = state.current;
+          state.current += TAP_CONFIG.REGEN_AMOUNT;
           
-          if (state.currentTaps > state.maxTaps) {
-            state.currentTaps = state.maxTaps;
+          if (state.current > state.maxTaps) {
+            state.current = state.maxTaps;
           }
-  
-          console.log(`Regenerated taps: ${previousTaps} -> ${state.currentTaps}`);
-  
-          const tapsSinceLastUpdate = state.currentTaps - state.lastUpdateTaps;
-          if (tapsSinceLastUpdate >= TAP_CONFIG.UPDATE_THRESHOLD || state.currentTaps === state.maxTaps) {
+    
+          console.log(`Regenerated taps: ${previousTaps} -> ${state.current}`);
+    
+          const tapsSinceLastUpdate = state.current - state.lastUpdateTaps;
+          if (tapsSinceLastUpdate >= TAP_CONFIG.UPDATE_THRESHOLD || state.current === state.maxTaps) {
             await updateBackend(userId);
           }
-  
+    
           notifySubscribers();
-  
-          if (state.currentTaps === state.maxTaps) {
+    
+          if (state.current === state.maxTaps) {
             console.log('Reached max taps, stopping regeneration');
             clearInterval(regenInterval);
             regenInterval = null;
@@ -97,101 +98,136 @@ export const createTapManager = () => {
       }, TAP_CONFIG.REGEN_INTERVAL);
     };
   
-    const fetchTaps = async (userId) => {
-      if (!userId) return;
-  
-      try {
-        console.log('Fetching taps for user:', userId);
-        const userRef = doc(db, 'users', String(userId));
-        const docSnap = await getDoc(userRef);
-  
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          console.log('Fetched user data:', data);
-  
-          state.totalTaps = data?.stats?.totalTaps || 0;
-          state.currentTaps = data?.stats?.currentTaps || 0;
-          state.lastUpdateTaps = state.currentTaps;
-          state.pendingTotalTaps = data?.stats?.pendingTotalTaps || 0;
-          state.tapMultiplier = data?.stats?.tapMultiplier || 1;
-  
-          if (data.energy && typeof data.energy.max === 'number') {
-            console.log('Setting maxTaps to:', data.energy.max);
-            state.maxTaps = data.energy.max;
-          }
-  
-          if (state.currentTaps > state.maxTaps) {
-            state.currentTaps = state.maxTaps;
-            await updateBackend(userId);
-          }
-  
-          if (state.currentTaps < state.maxTaps) {
-            startRegeneration(userId);
-          }
-  
-          notifySubscribers();
-          console.log('State after fetch:', { ...state });
-        } else {
-          console.warn('No document found for user:', userId);
-        }
-      } catch (error) {
-        console.error('Error fetching taps:', error);
+    // ... previous code remains the same ...
+
+const fetchTaps = async (userId) => {
+  if (!userId) return;
+
+  try {
+    console.log('Fetching taps for user:', userId);
+    const userRef = doc(db, 'users', String(userId));
+    const docSnap = await getDoc(userRef);
+
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      console.log('Fetched user data:', data);
+
+      // Update total taps and multiplier from stats
+      state.totalTaps = data?.stats?.totalTaps || 0;
+      state.tapMultiplier = data?.stats?.tapMultiplier || 1;
+
+      // Get current taps from energy object
+      state.current = data?.energy?.current ?? data?.energy?.max ?? TAP_CONFIG.DEFAULT_MAX_TAPS;
+      state.lastUpdateTaps = state.current;
+
+      // Set max taps from energy
+      if (data.energy?.max) {
+        console.log('Setting maxTaps to:', data.energy.max);
+        state.maxTaps = data.energy.max;
       }
-    };
-  
-    const handleTap = async (userId) => {
-      if (!userId) return false;
-  
-      state.lastTapTime = Date.now();
-      
-      if (state.currentTaps < state.tapMultiplier) {
-        console.log('Not enough taps for multiplier:', {
-          currentTaps: state.currentTaps,
-          required: state.tapMultiplier
+
+      // If current is undefined or null, set it to maxTaps
+      if (state.current === undefined || state.current === null) {
+        state.current = state.maxTaps;
+        await updateDoc(userRef, {
+          'energy.current': state.current,
+          lastUpdated: serverTimestamp()
         });
-        return false;
       }
-  
-      console.log('Tap stats before:', {
-        currentTaps: state.currentTaps,
-        totalTaps: state.totalTaps,
-        multiplier: state.tapMultiplier
-      });
-  
-      state.currentTaps -= state.tapMultiplier;
-      
-      const tapIncrease = 1 * state.tapMultiplier;
-      state.totalTaps += tapIncrease;
-      state.pendingTotalTaps += tapIncrease;
-  
-      console.log('Tap stats after:', {
-        currentTaps: state.currentTaps,
-        totalTaps: state.totalTaps,
-        pendingTotalTaps: state.pendingTotalTaps
-      });
-      
-      if (state.currentTaps === 0) {
+
+      // Ensure current doesn't exceed max
+      if (state.current > state.maxTaps) {
+        state.current = state.maxTaps;
+        await updateBackend(userId);
+      }
+
+      // Only start regeneration if current is less than max
+      if (state.current < state.maxTaps) {
         startRegeneration(userId);
       }
-      
+
       notifySubscribers();
+      console.log('State after fetch:', { 
+        current: state.current, 
+        maxTaps: state.maxTaps,
+        totalTaps: state.totalTaps 
+      });
+    } else {
+      console.warn('No document found for user:', userId);
+      
+      // Initialize new user with max taps
+      state.current = TAP_CONFIG.DEFAULT_MAX_TAPS;
+      await updateDoc(userRef, {
+        'energy.current': state.current,
+        'energy.max': state.maxTaps,
+        lastUpdated: serverTimestamp()
+      });
+      notifySubscribers();
+    }
+  } catch (error) {
+    console.error('Error fetching taps:', error);
+  }
+};
   
-      if (updateTimeout) {
-        clearTimeout(updateTimeout);
-      }
+const handleTap = async (userId) => {
+  if (!userId) return false;
+
+  state.lastTapTime = Date.now();
   
-      updateTimeout = setTimeout(async () => {
-        await updateBackend(userId);
-        state.pendingTotalTaps = 0;
-        notifySubscribers();
-        
-        if (state.currentTaps < state.maxTaps) {
-          startRegeneration(userId);
-        }
-      }, TAP_CONFIG.INACTIVITY_DELAY);
+  // Clear any existing regeneration
+  if (regenInterval) {
+    clearInterval(regenInterval);
+    regenInterval = null;
+    state.isRegenerating = false;
+  }
   
-      return true;
-    };
+  if (state.current < state.tapMultiplier) {
+    console.log('Not enough taps for multiplier:', {
+      current: state.current,
+      required: state.tapMultiplier
+    });
+    return false;
+  }
+
+  console.log('Tap stats before:', {
+    current: state.current,
+    totalTaps: state.totalTaps,
+    multiplier: state.tapMultiplier
+  });
+
+  state.current -= state.tapMultiplier;
+  
+  const tapIncrease = 1 * state.tapMultiplier;
+  state.totalTaps += tapIncrease;
+
+  console.log('Tap stats after:', {
+    current: state.current,
+    totalTaps: state.totalTaps,
+  });
+  
+  // Only start regeneration if we're at 0
+  if (state.current === 0) {
+    startRegeneration(userId);
+  }
+  
+  notifySubscribers();
+
+  if (updateTimeout) {
+    clearTimeout(updateTimeout);
+  }
+
+  updateTimeout = setTimeout(async () => {
+    await updateBackend(userId);
+    notifySubscribers();
+    
+    // Only start regeneration after update if we're at 0
+    if (state.current === 0 && !state.isRegenerating) {
+      startRegeneration(userId);
+    }
+  }, TAP_CONFIG.INACTIVITY_DELAY);
+
+  return true;
+};
   
     const updateMaxTaps = async (userId) => {
       if (!userId) return false;
@@ -210,15 +246,15 @@ export const createTapManager = () => {
             console.log('New maxTaps value:', newMaxTaps);
             
             state.maxTaps = newMaxTaps;
-            if (state.currentTaps > newMaxTaps) {
-              state.currentTaps = newMaxTaps;
+            if (state.current > newMaxTaps) {
+              state.current = newMaxTaps;
             }
   
             notifySubscribers();
             console.log('Updated state:', state);
   
             await updateDoc(userRef, {
-              'stats.currentTaps': state.currentTaps,
+              'energy.current': state.current,
               lastUpdated: serverTimestamp()
             });
   
@@ -233,10 +269,9 @@ export const createTapManager = () => {
     };
   
     const getTapManagerState = () => ({
-      currentTaps: state.currentTaps,
+      current: state.current,
       maxTaps: state.maxTaps,
       totalTaps: state.totalTaps,
-      pendingTotalTaps: state.pendingTotalTaps,
       isRegenerating: state.isRegenerating,
       tapMultiplier: state.tapMultiplier
     });
@@ -290,10 +325,9 @@ export const createTapManager = () => {
 
   export const useTapManager = (userId) => {
     const [tapState, setTapState] = useState({
-      currentTaps: 0,
+      current: 0,
       maxTaps: TAP_CONFIG.DEFAULT_MAX_TAPS,
       totalTaps: 0,
-      pendingTotalTaps: 0,
       isRegenerating: false,
       tapMultiplier: 1
     });
@@ -323,10 +357,9 @@ export const createTapManager = () => {
     }, [userId]);
   
     return {
-      currentTaps: tapState.currentTaps,
+      current: tapState.current,
       maxTaps: tapState.maxTaps,
       totalTaps: tapState.totalTaps,
-      pendingTotalTaps: tapState.pendingTotalTaps,
       isRegenerating: tapState.isRegenerating,
       tapMultiplier: tapState.tapMultiplier,
       handleTap,

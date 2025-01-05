@@ -12,10 +12,10 @@ export default function Footer() {
 
   const navigationItems = [
     { 
-      href: '/', 
+      href: '/tap', 
       icon: <Home size={24} />, 
       label: 'Home',
-      match: '/'
+      match: '/tap'
     },
     { 
       href: '/boost', 

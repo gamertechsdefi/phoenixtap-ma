@@ -70,7 +70,6 @@ export const initializeUser = async (telegramUser) => {
                     points: 0,
                     currentLevel: 1,
                     totalTaps: 0,
-                    currentTaps: 2500,
                     pendingTotalTaps: 0,
                     adsWatched: 0,
                     tasksCompleted: 0,
