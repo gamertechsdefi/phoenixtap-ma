@@ -24,43 +24,33 @@ export default function Game() {
   const { current, totalTaps, pendingTotalTaps, handleTap, maxTaps } = useTapManager(userId || '');
 
   useEffect(() => {
-    let mounted = true;
-
     const init = async () => {
-      if (typeof window === 'undefined') return;
-
       try {
         const WebApp = (await import('@twa-dev/sdk')).default;
-
+  
         if (!WebApp) throw new Error("Run this app in a Telegram environment");
-        
+  
         WebApp.ready();
-
+        console.log("WebApp.initDataUnsafe:", WebApp.initDataUnsafe);
+  
         const user = WebApp.initDataUnsafe?.user;
-        if (!user) throw new Error("User data not available");
-
+        if (!user) {
+          throw new Error("User data not available. Please reopen this app in Telegram.");
+        }
+  
         setUserId(user.id);
-
         await initializeUser(user);
-        if (mounted) setIsLoading(false);
+        setIsLoading(false);
       } catch (err) {
         console.error("Initialization error:", err);
-        if (mounted) {
-          setError(err.message || 'Unknown error occurred');
-          setIsLoading(false);
-        }
+        setError(err.message || 'Unknown error occurred');
+        setIsLoading(false);
       }
     };
-
+  
     init();
-    return () => { mounted = false; };
   }, []);
-
-  const triggerTapAnimation = useCallback(() => {
-    setTapAnimation(true);
-    const timer = setTimeout(() => setTapAnimation(false), 150);
-    return () => clearTimeout(timer);
-  }, []);
+  
 
   const onTap = useCallback(async () => {
     if (isTapping || isLoading || current <= 0) return;
