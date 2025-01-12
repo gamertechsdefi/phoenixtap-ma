@@ -8,32 +8,59 @@ import { initializeUser } from '@/api/firebase/triggers';
 export default function Page() {
   const router = useRouter();
 
-  useEffect(() => {
-    const init = async () => {
-      try {
-        WebApp.ready();
-        const user = WebApp.initDataUnsafe?.user;
+  const [isInTelegram, setIsInTelegram] = useState(true); // Default to true, we'll check and update
 
-        if(!WebApp){
-          return <div>Launch this app in telegram</div>
-        }
-        
-        if (user?.id) {
-          await initializeUser(user);
-        }
-      } catch (error) {
-        console.error('Initialization error:', error);
+useEffect(() => {
+  const init = async () => {
+    try {
+      // Check if we're in Telegram
+      if (!window.Telegram?.WebApp) {
+        setIsInTelegram(false);
+        return;
       }
-    };
 
-    init();
+      WebApp.ready();
+      const user = WebApp.initDataUnsafe?.user;
+      
+      if (!WebApp.initDataUnsafe) {
+        setIsInTelegram(false);
+        return;
+      }
+      
+      if (user?.id) {
+        await initializeUser(user);
+      }
 
-    const timer = setTimeout(() => {
-      router.push('/tap');
-    }, 5000);
+      const timer = setTimeout(() => {
+        router.push('/tap');
+      }, 5000);
 
-    return () => clearTimeout(timer);
-  }, [router]);
+      return () => clearTimeout(timer);
+    } catch (error) {
+      console.error('Initialization error:', error);
+      setIsInTelegram(false);
+    }
+  };
+
+  init();
+}, [router]);
+
+// Early return if not in Telegram
+if (!isInTelegram) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-neutral-900 text-white">
+      <h1 className="text-2xl font-bold text-orange-500 mb-4">Phoenix Tap</h1>
+      <p className="text-lg">Please launch this app in Telegram</p>
+      <a 
+        href="https://t.me/your_bot"
+        className="mt-4 text-orange-500 underline hover:text-orange-400"
+      >
+        Open in Telegram
+      </a>
+    </div>
+  );
+}
+
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-neutral-900 overflow-hidden">
