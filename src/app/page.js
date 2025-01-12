@@ -13,6 +13,10 @@ export default function Page() {
       try {
         WebApp.ready();
         const user = WebApp.initDataUnsafe?.user;
+
+        if(!WebApp){
+          return <div>Launch this app in telegram</div>
+        }
         
         if (user?.id) {
           await initializeUser(user);
