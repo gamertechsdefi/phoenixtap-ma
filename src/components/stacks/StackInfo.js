@@ -1,20 +1,11 @@
-// components/StackTask/StackInfo.js
-import { useStackAvailability } from './StackHandler';
-
 export default function StackInfo() {
-  const { resetTime } = useStackAvailability();
-
-  if (!resetTime) return null;
-
-  const timeRemaining = resetTime - new Date();
-  const hoursRemaining = Math.floor(timeRemaining / (1000 * 60 * 60));
-  const minutesRemaining = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
-
   return (
-    <div className="bg-white rounded-lg shadow-md p-4 mb-4">
-      <h3 className="font-semibold text-lg">{stackTask.title}</h3>
-      <p className="text-gray-600 mt-1">
-        Available in {hoursRemaining}h {minutesRemaining}m
+    <div className="bg-neutral-900 bg-opacity-50 rounded-lg p-4 text-center">
+      <h3 className="font-semibold text-sm text-neutral-400">
+        Stack Tasks Unavailable
+      </h3>
+      <p className="text-xs text-neutral-500 mt-1">
+        Check back later for new stack tasks
       </p>
     </div>
   );

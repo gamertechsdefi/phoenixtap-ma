@@ -3,9 +3,20 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import WebApp from '@twa-dev/sdk';
-import { useXPManager } from "@/api/firebase/functions/useXPManager";  // Changed this line
+import { useXPManager } from "@/api/firebase/functions/useXPManager";
+import { taskService } from "@/api/firebase/functions/taskService";
+
+// Dynamic imports
+const TaskVerificationTimer = dynamic(() => import('@/components/TaskVerify'), {
+  ssr: false
+});
 
 const TaskList = dynamic(() => import('@/components/TaskLink'), {
+  ssr: false,
+  loading: () => <TaskListSkeleton />
+});
+
+const StackComponent = dynamic(() => import('@/components/StackFunction'), {
   ssr: false,
   loading: () => <TaskListSkeleton />
 });
@@ -19,6 +30,7 @@ const SafeAreaContainer = dynamic(() => import('@/components/SafeAreaContainer')
   ssr: false
 });
 
+// Loading skeleton component
 const TaskListSkeleton = () => (
   <div className="space-y-4 animate-pulse">
     {[...Array(3)].map((_, i) => (
@@ -30,6 +42,7 @@ const TaskListSkeleton = () => (
   </div>
 );
 
+// Tab configuration
 const tabs = [
   { id: 'daily-login', label: 'Daily', icon: '📅' },
   { id: 'stacks', label: 'Stacks', icon: '🎯' },
@@ -38,47 +51,122 @@ const tabs = [
 ];
 
 export default function TaskPage() {
+  // State management
   const [userId, setUserId] = useState(null);
   const [twaInstance, setTwaInstance] = useState(null);
   const [activeTab, setActiveTab] = useState('daily-login');
+  const [verifyingTask, setVerifyingTask] = useState(null);
+  const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const [taskHistory, setTaskHistory] = useState({});
   
-  // Use the custom hook for XP management
+  // Custom hooks
   const { totalXP, isLoading, updateXP } = useXPManager(userId);
 
+  // Fetch task history on user ID change
+  useEffect(() => {
+    const fetchHistory = async () => {
+      if (!userId) return;
+      const history = await taskService.getTaskHistory(userId);
+      setTaskHistory(history);
+    };
+
+    fetchHistory();
+  }, [userId]);
+
+  // Initialize WebApp and user ID
   useEffect(() => {
     try {
       const webApp = WebApp;
       setTwaInstance(webApp);
       if (webApp.initDataUnsafe?.user?.id) {
-        setUserId(webApp.initDataUnsafe.user.id);
+        setUserId(webApp.initDataUnsafe.user.id.toString());
       }
     } catch (error) {
       console.error('Error initializing WebApp:', error);
     }
   }, []);
 
-  const handleTaskComplete = async (task) => {
+  // Popup handler
+  const showPopup = async (options) => {
+    if (isPopupOpen || !twaInstance) return;
+    
     try {
-      if (task.type === 'partner' && task.url && twaInstance) {
-        twaInstance.openLink(task.url);
-      }
+      setIsPopupOpen(true);
+      await twaInstance.showPopup(options);
+    } catch (error) {
+      console.error('Error showing popup:', error);
+    } finally {
+      setIsPopupOpen(false);
+    }
+  };
 
-      const success = await updateXP(task.xpReward);
-      if (success && twaInstance) {
-        twaInstance.showPopup({
+  // Task click handler
+  const handleTaskClick = async (task) => {
+    try {
+      // Handle external links for partner and social tasks
+      if ((task.type === 'partner' || task.category === 'socials') && task.url) {
+        twaInstance?.openLink(task.url);
+      }
+      setVerifyingTask(task);
+    } catch (error) {
+      console.error('Error handling task:', error);
+      await showPopup({
+        title: 'Error',
+        message: 'Failed to start task',
+        buttons: [{ type: 'ok' }]
+      });
+    }
+  };
+
+  // Verification completion handler
+  const handleVerificationComplete = async () => {
+    if (!verifyingTask || !userId) return;
+
+    try {
+      // Handle task completion based on type
+      const result = verifyingTask.type === 'partner'
+        ? await taskService.completePartnerTask(userId, verifyingTask.id)
+        : await taskService.completeTask(userId, verifyingTask.id, verifyingTask.category);
+
+      if (result.success) {
+        // Update task history and show success popup
+        const updatedHistory = await taskService.getTaskHistory(userId);
+        setTaskHistory(updatedHistory);
+
+        await showPopup({
           title: 'Task Completed!',
-          message: `You earned ${task.xpReward} XP!`,
+          message: `You earned ${result.xpEarned} XP!`,
+          buttons: [{ type: 'ok' }]
+        });
+
+        await updateXP(result.xpEarned);
+      } else {
+        await showPopup({
+          title: 'Error',
+          message: result.error || 'Failed to complete task',
           buttons: [{ type: 'ok' }]
         });
       }
     } catch (error) {
       console.error('Error completing task:', error);
-      twaInstance?.showPopup({
+      await showPopup({
         title: 'Error',
-        message: 'Failed to complete task. Please try again.',
+        message: 'Failed to complete task',
         buttons: [{ type: 'ok' }]
       });
+    } finally {
+      setVerifyingTask(null);
     }
+  };
+
+  // Verification cancellation handler
+  const handleVerificationCancel = async () => {
+    setVerifyingTask(null);
+    await showPopup({
+      title: 'Cancelled',
+      message: 'Task verification cancelled',
+      buttons: [{ type: 'ok' }]
+    });
   };
 
   return (
@@ -90,6 +178,7 @@ export default function TaskPage() {
       <SafeAreaContainer>
         <div className="min-h-screen flex flex-col">
           <main className="flex-grow p-4">
+            {/* XP Display */}
             <div className="bg-neutral-900 bg-opacity-50 rounded-lg p-4 shadow-md mb-6">
               <h2 className="text-orange-400 font-bold flex items-center gap-2">
                 <span>Total XP:</span>
@@ -99,6 +188,7 @@ export default function TaskPage() {
               </h2>
             </div>
 
+            {/* Tab Navigation */}
             <div className="bg-neutral-900 bg-opacity-50 rounded-lg shadow-md mb-6 p-2 overflow-hidden">
               <div className="flex overflow-x-auto scrollbar-hide gap-2">
                 {tabs.map((tab) => (
@@ -118,20 +208,40 @@ export default function TaskPage() {
               </div>
             </div>
 
+            {/* Content Area */}
             {userId && (
               <Suspense fallback={<TaskListSkeleton />}>
-                <TaskList
-                  category={activeTab}
-                  onTaskComplete={handleTaskComplete}
-                />
+                {activeTab === 'stacks' ? (
+                  <StackComponent 
+                    userId={userId}
+                    onTaskComplete={handleTaskClick}
+                  />
+                ) : (
+                  <TaskList
+                    category={activeTab}
+                    onTaskComplete={handleTaskClick}
+                    userId={userId}
+                    taskHistory={taskHistory}
+                  />
+                )}
               </Suspense>
             )}
           </main>
-          <Suspense fallback={<div className="h-16" />}>
-            <Footer />
-          </Suspense>
+
+          {/* Verification Modal */}
+          {verifyingTask && (
+            <TaskVerificationTimer
+              taskTitle={verifyingTask.title}
+              onComplete={handleVerificationComplete}
+              onCancel={handleVerificationCancel}
+              seconds={10}
+            />
+          )}
+
+          <Footer />
         </div>
 
+        {/* Global Styles */}
         <style jsx global>{`
           .scrollbar-hide {
             -ms-overflow-style: none;

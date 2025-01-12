@@ -4,6 +4,8 @@ import React, { useState, useEffect, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import WebApp from '@twa-dev/sdk';
 import { referralSystem } from '@/api/firebase/functions/referralSystem';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '@/api/firebase/triggers';
 import {motion} from "framer-motion";
 
 const SafeAreaContainer = dynamic(() => import('@/components/SafeAreaContainer'), {
@@ -26,11 +28,17 @@ const LoadingCard = () => (
 );
 
 export default function ReferralPage() {
-  const [referralStats, setReferralStats] = useState(null);
+  const [referralStats, setReferralStats] = useState({
+    referralCode: '',
+    referralsCount: 0,
+    totalRewards: 0,
+    friends: []
+  });
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [userId, setUserId] = useState(null);
   const [twaInstance, setTwaInstance] = useState(null);
+  const [friends, setFriends] = useState([]);
 
   useEffect(() => {
     try {
@@ -43,6 +51,28 @@ export default function ReferralPage() {
       console.error('Error initializing WebApp:', error);
     }
   }, []);
+
+  useEffect(() => {
+    const fetchFriends = async () => {
+      if (!userId) return;
+      try {
+        const friendsRef = collection(db, 'users', userId.toString(), 'friends');
+        const friendsSnap = await getDocs(friendsRef);
+        const friendsList = [];
+        friendsSnap.forEach((doc) => {
+          friendsList.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+        setFriends(friendsList);
+      } catch (error) {
+        console.error('Error fetching friends:', error);
+      }
+    };
+  
+    fetchFriends();
+  }, [userId]);
 
   useEffect(() => {
     async function initializeReferral() {
@@ -81,13 +111,13 @@ export default function ReferralPage() {
     } catch (error) {
       console.error('Error sharing:', error);
     }
-  }; 
+  };
 
   return (
     <Suspense fallback={<LoadingCard />}>
       <SafeAreaContainer>
         <div className="min-h-screen flex flex-col">
-          <main className="flex-grow p-4 space-y-6">
+          <main className="flex-grow px-4 pt-8 pb-16 space-y-6">
             <Suspense fallback={<LoadingCard />}>
               <motion.div
                 className="bg-neutral-800 rounded-lg p-6 border-2 border-orange-500"
@@ -120,19 +150,7 @@ export default function ReferralPage() {
               </motion.div>
             </Suspense>
 
-            <div className="grid grid-cols-2 gap-4">
-              <Suspense fallback={<LoadingCard />}>
-                <motion.div
-                  className="bg-neutral-800 p-4 rounded-lg text-center"
-                  whileHover={{ scale: 1.05 }}
-                >
-                  <p className="text-sm text-gray-400">Total Referrals</p>
-                  <p className="text-2xl font-bold text-orange-400">
-                    {referralStats?.referralsCount || 0}
-                  </p>
-                </motion.div>
-              </Suspense>
-
+            <div className="">
               <Suspense fallback={<LoadingCard />}>
                 <motion.div
                   className="bg-neutral-800 p-4 rounded-lg text-center"
@@ -146,15 +164,57 @@ export default function ReferralPage() {
               </Suspense>
             </div>
 
-            <div className="bg-neutral-800 p-4 rounded-lg">
-              <h3 className="text-lg font-semibold text-orange-400 mb-2">How it works</h3>
-              <ul className="space-y-2 text-sm">
-                <li>• Share your code with friends</li>
-                <li>• They click your referral link</li>
-                <li>• You get 100 XP for each referral</li>
-                <li>• They get 50 XP bonus</li>
-              </ul>
-            </div>
+            {loading ? (
+              <div className="bg-neutral-800 p-4 rounded-lg animate-pulse">
+                <div className="h-6 bg-neutral-700 rounded w-1/3 mb-4" />
+                <div className="space-y-3">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="h-12 bg-neutral-700 rounded" />
+                  ))}
+                </div>
+              </div>
+            ) : friends.length === 0 ? (
+              <div className="bg-neutral-800 p-4 rounded-lg">
+                <h3 className="text-lg font-semibold text-orange-400 mb-2">No Friends Yet</h3>
+                <p className="text-sm text-neutral-400">
+                  Share your referral code to invite friends and earn XP rewards!
+                </p>
+              </div>
+            ) : (
+              <div className="bg-neutral-800 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-orange-400">
+                    Referred Friends
+                  </h3>
+                  <span className="text-sm text-neutral-400">
+                    Total: {friends.length}
+                  </span>
+                </div>
+                
+                <div className="space-y-3">
+                  {friends.map((friend) => (
+                    <div 
+                      key={friend.id}
+                      className="flex items-center justify-between p-3 bg-neutral-700 rounded-lg"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
+                          <span className="text-sm font-medium text-white">
+                            {friend.firstName?.[0] || '?'}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="font-medium">
+                            {friend.firstName || 'Anonymous'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </main>
           <Suspense fallback={<div className="h-16" />}>
             <Footer />

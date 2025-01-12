@@ -26,6 +26,11 @@ export const createTapManager = () => {
       if (!userId) return;
     
       try {
+        // Don't update if nothing has changed
+        if (state.current === state.lastUpdateTaps) {
+          return;
+        }
+    
         console.log('Updating backend with state:', {
           current: state.current,
           totalTaps: state.totalTaps,
@@ -46,19 +51,12 @@ export const createTapManager = () => {
     };
   
     const startRegeneration = (userId) => {
-      // Exit if any of these conditions are met
-      if (regenInterval || 
-          state.isRegenerating || 
-          state.current >= state.maxTaps || 
-          state.current > 0) {  // Add this check to prevent regeneration if not at 0
+      // Exit if already regenerating or at max
+      if (regenInterval || state.current >= state.maxTaps) {
         return;
       }
       
-      const timeSinceLastTap = Date.now() - state.lastTapTime;
-      if (timeSinceLastTap < TAP_CONFIG.INACTIVITY_DELAY) {
-        return;
-      }
-      
+      // Start regeneration regardless of current value
       console.log('Starting regeneration process');
       state.isRegenerating = true;
       state.lastUpdateTaps = state.current;
@@ -66,16 +64,16 @@ export const createTapManager = () => {
       regenInterval = setInterval(async () => {
         if (state.current < state.maxTaps) {
           const previousTaps = state.current;
-          state.current += TAP_CONFIG.REGEN_AMOUNT;
-          
-          if (state.current > state.maxTaps) {
-            state.current = state.maxTaps;
-          }
+          state.current = Math.min(
+            state.maxTaps, 
+            state.current + TAP_CONFIG.REGEN_AMOUNT
+          );
     
           console.log(`Regenerated taps: ${previousTaps} -> ${state.current}`);
     
-          const tapsSinceLastUpdate = state.current - state.lastUpdateTaps;
-          if (tapsSinceLastUpdate >= TAP_CONFIG.UPDATE_THRESHOLD || state.current === state.maxTaps) {
+          // Update if threshold reached or at max
+          if ((state.current - state.lastUpdateTaps) >= TAP_CONFIG.UPDATE_THRESHOLD 
+              || state.current === state.maxTaps) {
             await updateBackend(userId);
           }
     
@@ -174,13 +172,14 @@ const handleTap = async (userId) => {
 
   state.lastTapTime = Date.now();
   
-  // Clear any existing regeneration
-  if (regenInterval) {
-    clearInterval(regenInterval);
-    regenInterval = null;
-    state.isRegenerating = false;
+  // Don't stop regeneration when tapping
+  // If we're below tap cost, start regeneration
+  if (state.current < state.tapMultiplier && !state.isRegenerating) {
+    startRegeneration(userId);
+    return false;
   }
-  
+
+  // Only allow tap if we have enough energy
   if (state.current < state.tapMultiplier) {
     console.log('Not enough taps for multiplier:', {
       current: state.current,
@@ -196,7 +195,6 @@ const handleTap = async (userId) => {
   });
 
   state.current -= state.tapMultiplier;
-  
   const tapIncrease = 1 * state.tapMultiplier;
   state.totalTaps += tapIncrease;
 
@@ -205,13 +203,14 @@ const handleTap = async (userId) => {
     totalTaps: state.totalTaps,
   });
   
-  // Only start regeneration if we're at 0
-  if (state.current === 0) {
+  // Start regeneration if we're at 0 and not already regenerating
+  if (state.current === 0 && !state.isRegenerating) {
     startRegeneration(userId);
   }
   
   notifySubscribers();
 
+  // Debounce updates to prevent lag
   if (updateTimeout) {
     clearTimeout(updateTimeout);
   }
@@ -219,12 +218,7 @@ const handleTap = async (userId) => {
   updateTimeout = setTimeout(async () => {
     await updateBackend(userId);
     notifySubscribers();
-    
-    // Only start regeneration after update if we're at 0
-    if (state.current === 0 && !state.isRegenerating) {
-      startRegeneration(userId);
-    }
-  }, TAP_CONFIG.INACTIVITY_DELAY);
+  }, 200); // Reduced delay for better responsiveness
 
   return true;
 };

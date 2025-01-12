@@ -143,7 +143,7 @@ export default function Page() {
   return (
     <SafeAreaContainer>
       <div className="min-h-screen flex flex-col">
-        <main className="flex-grow">
+        <main className="flex-grow pb-8">
           <div className="max-w-lg mx-auto p-4">
             {/* User's Current Rank */}
             <div className="bg-neutral-100 text-neutral-900 rounded-lg p-4 mb-6">

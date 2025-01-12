@@ -64,11 +64,11 @@ export default function UserProfile() {
             alt="User profile"
             priority 
           />
-          <p className="font-bold text-neutral-900">{username}</p>
+          <p className="text-neutral-900">{username}</p>
         </div>
 
         <div className="flex">
-          <h2 className="font-bold text-orange-600">
+          <h2 className="text-orange-600">
             <span className="pl-4">
               {loading ? '...' : `${totalXP.toLocaleString()} xp`}
             </span>

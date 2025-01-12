@@ -17,23 +17,13 @@
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: "SpaceMono, sans-serif"
+  font-family: "Space Mono", serif;
+    font-weight: 400;
+    font-style: normal;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
-}
-
-@font-face {
-  font-family: "Space Mono";
-  src: url("/src/app/fonts/SpaceMono-Regular.ttf"), format(truetype);
-  font-weight: normal;
-}
-
-@font-face {
-  font-family: "Space Mono";
-  src: url("/src/app/fonts/SpaceMono-Bold.ttf"), format(truetype);
-  font-weight: bold;
 }

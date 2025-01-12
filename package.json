@@ -9,15 +9,13 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@telegram-apps/sdk-react": "^2.0.20",
-    "@twa-dev/sdk": "^7.10.1",
+    "@twa-dev/sdk": "^8.0.1",
     "axios": "^1.7.7",
     "cookie": "^1.0.1",
     "cookies-next": "^4.3.0",
     "crypto": "^1.0.1",
     "firebase": "^10.14.1",
-    "framer-motion": "^11.11.7",
-    "jsonwebtoken": "^9.0.2",
+    "framer-motion": "^11.17.0",
     "lucide-react": "^0.468.0",
     "next": "14.2.15",
     "react": "^18",
