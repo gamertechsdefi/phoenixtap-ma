@@ -65,15 +65,11 @@ export const initializeUser = async (telegramUser) => {
                 referralsCount: 0,
                 totalReferralRewards: 0,
                 stats: {
-                    currentXP: 0,
                     totalXP: 0,
-                    points: 0,
                     currentLevel: 1,
                     totalTaps: 0,
-                    pendingTotalTaps: 0,
                     adsWatched: 0,
                     tasksCompleted: 0,
-                    friendsReferred: 0
                 },
                 energy: {
                     current: 2500,
@@ -114,8 +110,8 @@ export const initializeUser = async (telegramUser) => {
                         const referrerRef = doc(db, 'users', referrerId);
                         batch.update(referrerRef, {
                             referralsCount: increment(0.5),
-                            totalReferralRewards: increment(50),
-                            'stats.totalXP': increment(50),
+                            totalReferralRewards: increment(100),
+                            'stats.totalXP': increment(100),
                             lastUpdated: serverTimestamp()
                         });
 
@@ -136,7 +132,7 @@ export const initializeUser = async (telegramUser) => {
                                 firstName: referrerData.firstName || '',
                                 referralCode: userData.pendingReferralCode
                             },
-                            'stats.totalXP': increment(25),
+                            'stats.totalXP': increment(50),
                             pendingReferralCode: deleteField(),
                             lastUpdated: serverTimestamp()
                         });

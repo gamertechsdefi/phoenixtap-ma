@@ -1,240 +1,217 @@
 import { 
-  collection, 
   doc, 
-  getDoc, 
+  collection, 
   getDocs, 
-  query, 
-  where, 
-  orderBy, 
-  updateDoc,
-  increment,
+  getDoc, 
+  setDoc,
+  query,
+  where,
   serverTimestamp,
-  setDoc
+  writeBatch,
+  increment
 } from 'firebase/firestore';
 import { db } from '@/api/firebase/triggers';
 
-const isTaskAvailable = (lastCompletedAt, taskType) => {
-  if (!lastCompletedAt) return true;
-
-  const now = new Date();
-  const resetTime = new Date(now);
-  resetTime.setHours(0, 0, 0, 0); // Start of current day
-
-  const completionDate = lastCompletedAt.toDate();
-
-  switch (taskType) {
-    case 'daily':
-    case 'stacks':
-      return completionDate < resetTime;
-    case 'socials':
-    case 'partners':
-      return false;
-    default:
-      return true;
-  }
-};
-
 export const taskService = {
-  async fetchTasks(category) {
+  /**
+   * Get tasks with completion status
+   * @param {string} userId User ID
+   * @param {string} category Task category/type
+   * @returns {Promise<Array>} Array of tasks with completion status
+   */
+  async getTasksWithStatus(userId, category) {
     try {
-      const q = query(
-        collection(db, 'tasks'),
-        where('category', '==', category),
-        where('active', '==', true),
-        orderBy('createdAt', 'desc')
-      );
+      // Debug logs
+      console.log('=== getTasksWithStatus ===');
+      console.log('Parameters:', { userId, category });
 
+      // Basic tasks query
+      const tasksRef = collection(db, 'tasks');
+      console.log('Collection reference:', tasksRef.path);
+
+      // Create query
+      const q = query(tasksRef, where('type', '==', category));
+      console.log('Query created for type:', category);
+
+      // Execute query
+      console.log('Executing query...');
       const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-    } catch (error) {
-      console.error('Error fetching tasks:', error);
-      return [];
-    }
-  },
+      console.log('Query executed. Found docs:', querySnapshot.size);
 
-  async fetchPartnerTasks() {
-    try {
-      const q = query(
-        collection(db, 'partners'),
-        where('active', '==', true),
-        orderBy('position', 'asc')
-      );
-
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-    } catch (error) {
-      console.error('Error fetching partner tasks:', error);
-      return [];
-    }
-  },
-
-  async getUserTaskState(userId, taskId, category) {
-    try {
-      const taskHistoryRef = doc(db, 'users', userId, 'taskHistory', taskId);
-      const snapshot = await getDoc(taskHistoryRef);
+      // Get completed tasks for the user
+      const completedTasksRef = collection(db, 'users', userId, 'completed_tasks');
+      const completedSnapshot = await getDocs(completedTasksRef);
+      const completedTasks = {};
       
-      if (!snapshot.exists()) {
-        return { completed: false, available: true };
-      }
+      completedSnapshot.forEach(doc => {
+        completedTasks[doc.id] = doc.data();
+      });
 
-      const data = snapshot.data();
-      const available = isTaskAvailable(data.lastCompletedAt, category);
+      // Process results and check completion status
+      const tasks = [];
+      querySnapshot.forEach(doc => {
+        console.log('Processing doc:', doc.id, doc.data());
+        const taskData = doc.data();
+        const completionData = completedTasks[doc.id];
+        
+        let isCompleted = false;
+        if (completionData?.lastCompleted) {
+          const lastCompletionTime = completionData.lastCompleted.toDate();
+          const now = new Date();
+          isCompleted = (now - lastCompletionTime) < 24 * 60 * 60 * 1000;
+        }
 
-      return {
-        completed: !available,
-        available,
-        lastCompletedAt: data.lastCompletedAt
-      };
+        tasks.push({
+          id: doc.id,
+          ...taskData,
+          completed: isCompleted
+        });
+      });
+
+      console.log('Processed tasks:', tasks);
+      return tasks;
+
     } catch (error) {
-      console.error('Error getting task state:', error);
-      return { completed: false, available: true };
+      console.error('Error in getTasksWithStatus:', error);
+      console.error('Full error:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+      });
+      return [];
     }
   },
 
+  /**
+   * Get partner tasks with completion status
+   */
+  /**
+   * Complete a regular task
+   */
   async completeTask(userId, taskId, category) {
     try {
-      // Check task availability first
-      const taskState = await this.getUserTaskState(userId, taskId, category);
-      if (!taskState.available) {
-        return { 
-          success: false, 
-          error: 'Task is not available for completion' 
-        };
-      }
-aa
-      const userRef = doc(db, 'users', userId);
+      console.log('Completing task:', { userId, taskId, category });
+      
+      // Get task details first
       const taskRef = doc(db, 'tasks', taskId);
-      const taskHistoryRef = doc(db, 'users', userId, 'taskHistory', taskId);
-
-      const taskSnap = await getDoc(taskRef);
-      if (!taskSnap.exists()) {
-        throw new Error('Task not found');
+      const taskDoc = await getDoc(taskRef);
+      
+      if (!taskDoc.exists()) {
+        return { success: false, error: 'Task not found' };
       }
 
-      const taskData = taskSnap.data();
-      const xpReward = taskData.xpReward || 0;
+      const taskData = taskDoc.data();
 
-      // Update task history
-      await setDoc(taskHistoryRef, {
-        lastCompletedAt: serverTimestamp(),
-        type: category,
-        xpReward,
-        taskId,
-        completedAt: serverTimestamp()
-      }, { merge: true });
+      // Check if task was already completed today
+      const completedTaskRef = doc(db, 'users', userId, 'completed_tasks', taskId);
+      const completedTaskDoc = await getDoc(completedTaskRef);
+      
+      if (completedTaskDoc.exists()) {
+        const completionData = completedTaskDoc.data();
+        const lastCompletionTime = completionData.lastCompleted?.toDate() || new Date(0);
+        const now = new Date();
+        
+        if (now - lastCompletionTime < 24 * 60 * 60 * 1000) {
+          return { success: false, error: 'Task already completed today' };
+        }
+      }
 
+      // Use a batch to ensure atomic updates
+      const batch = writeBatch(db);
+      
       // Update user stats
-      await updateDoc(userRef, {
-        [`stats.completedTasks.${category}`]: increment(1),
-        'stats.currentXP': increment(xpReward),
-        'stats.totalXP': increment(xpReward),
+      const userRef = doc(db, 'users', userId);
+      batch.update(userRef, {
+        'stats.tasksCompleted': increment(1),
+        'stats.currentXP': increment(taskData.xpReward),
+        'stats.totalXP': increment(taskData.xpReward),
         lastUpdated: serverTimestamp()
       });
 
-      // For one-time tasks, mark them as inactive
-      if (category === 'socials') {
-        await updateDoc(taskRef, {
-          active: false,
-          lastCompletedAt: serverTimestamp(),
-          lastCompletedBy: userId
-        });
-      }
+      // Record task completion
+      batch.set(completedTaskRef, {
+        taskId,
+        category,
+        xpEarned: taskData.xpReward,
+        lastCompleted: serverTimestamp(),
+        completionCount: increment(1)
+      }, { merge: true });
 
-      return { success: true, xpEarned: xpReward };
+      await batch.commit();
+      console.log('Task completed successfully');
+
+      return { 
+        success: true, 
+        xpEarned: taskData.xpReward 
+      };
+
     } catch (error) {
       console.error('Error completing task:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: 'Failed to complete task' };
     }
   },
 
+  /**
+   * Complete a partner task
+   */
   async completePartnerTask(userId, partnerId) {
     try {
-      // Check if already completed
-      const isCompleted = await this.checkPartnerTaskCompletion(userId, partnerId);
-      if (isCompleted) {
-        return { 
-          success: false, 
-          error: 'Partner task already completed' 
-        };
-      }
-
-      const userRef = doc(db, 'users', userId);
+      // Get partner details first
       const partnerRef = doc(db, 'partners', partnerId);
-      const taskHistoryRef = doc(db, 'users', userId, 'taskHistory', partnerId);
-
-      const partnerSnap = await getDoc(partnerRef);
-      if (!partnerSnap.exists()) {
-        throw new Error('Partner not found');
+      const partnerDoc = await getDoc(partnerRef);
+      
+      if (!partnerDoc.exists()) {
+        return { success: false, error: 'Partner not found' };
       }
 
-      const partnerData = partnerSnap.data();
-      const xpReward = partnerData.xpReward || 0;
+      const partnerData = partnerDoc.data();
+      
+      // Check if task was already completed
+      const completedTaskRef = doc(db, 'users', userId, 'completed_tasks', partnerId);
+      const completedTaskDoc = await getDoc(completedTaskRef);
+      
+      if (completedTaskDoc.exists()) {
+        return { success: false, error: 'Partner task already completed' };
+      }
 
-      // Update task history
-      await setDoc(taskHistoryRef, {
-        lastCompletedAt: serverTimestamp(),
-        type: 'partners',
-        xpReward,
-        taskId: partnerId,
-        completedAt: serverTimestamp()
-      }, { merge: true });
-
-      // Update user data
-      await updateDoc(userRef, {
-        [`completedPartners.${partnerId}`]: {
-          completedAt: serverTimestamp(),
-          xpEarned: xpReward
-        },
-        'stats.currentXP': increment(xpReward),
-        'stats.totalXP': increment(xpReward),
+      // Use a batch to ensure atomic updates
+      const batch = writeBatch(db);
+      
+      // Update user stats
+      const userRef = doc(db, 'users', userId);
+      batch.update(userRef, {
+        'stats.tasksCompleted': increment(1),
+        'stats.currentXP': increment(partnerData.xpReward),
+        'stats.totalXP': increment(partnerData.xpReward),
         lastUpdated: serverTimestamp()
       });
 
-      // Mark partner task as inactive
-      await updateDoc(partnerRef, {
-        active: false,
-        lastCompletedAt: serverTimestamp(),
-        lastCompletedBy: userId
+      // Record task completion
+      batch.set(completedTaskRef, {
+        partnerId,
+        category: 'partners',
+        xpEarned: partnerData.xpReward,
+        completedAt: serverTimestamp(),
+        completionCount: 1
       });
 
-      return { success: true, xpEarned: xpReward };
+      await batch.commit();
+
+      return { 
+        success: true, 
+        xpEarned: partnerData.xpReward 
+      };
+
     } catch (error) {
       console.error('Error completing partner task:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: 'Failed to complete partner task' };
     }
   },
 
-  async checkPartnerTaskCompletion(userId, partnerId) {
-    try {
-      const taskHistoryRef = doc(db, 'users', userId, 'taskHistory', partnerId);
-      const snapshot = await getDoc(taskHistoryRef);
-      return snapshot.exists();
-    } catch (error) {
-      console.error('Error checking partner task completion:', error);
-      return false;
-    }
-  },
-
-  async getTaskHistory(userId) {
-    try {
-      const historyRef = collection(db, 'users', userId, 'taskHistory');
-      const snapshot = await getDocs(historyRef);
-      
-      const history = {};
-      snapshot.forEach(doc => {
-        history[doc.id] = doc.data();
-      });
-      
-      return history;
-    } catch (error) {
-      console.error('Error getting task history:', error);
-      return {};
-    }
-  }
+  /**
+   * Complete a stack task
+   */
+  
 };
+
+export default taskService;

@@ -1,107 +1,39 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
-import { db } from '@/api/firebase/triggers';
-import TaskCard from '@/components/cards/tasksCard';
-import StackCard from '@/components/stacks/StackCard';
-import StackInfo from '@/components/stacks/StackInfo';
-import { useStackAvailability } from '@/components/stacks/StackHandler';
+import TaskCard from '@/components/TaskCards';
+import { taskService } from "@/api/firebase/functions/taskService";
 
 export default function TaskList({ 
   category, 
   onTaskComplete,
-  userId,
-  taskHistory = {}
+  userId
 }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { stackAvailable } = useStackAvailability();
 
   const fetchTasks = useCallback(async () => {
     try {
       setLoading(true);
-      
-      if (category === 'partners') {
-        // For partners, first get all documents
-        const partnersRef = collection(db, 'partners');
-        const partnerSnapshot = await getDocs(partnersRef);
-        const partnerList = [];
+      console.log('Fetching tasks for:', category, 'userId:', userId);
 
-        partnerSnapshot.forEach((doc) => {
-          const data = doc.data();
-          // Only include if active is true
-          if (data.active) {
-            const completionData = taskHistory[doc.id];
-            partnerList.push({ 
-              id: doc.id, 
-              ...data,
-              category: 'partners',
-              type: 'partner',
-              completed: !!completionData
-            });
-          }
-        });
+      const tasksWithStatus = await taskService.getTasksWithStatus(userId, category);
+      console.log('Fetched tasks:', tasksWithStatus);
 
-        // Sort in memory
-        partnerList.sort((a, b) => {
-          if (a.completed === b.completed) {
-            return (a.position || 0) - (b.position || 0);
-          }
-          return a.completed ? 1 : -1;
-        });
-        
-        setTasks(partnerList);
-      } else {
-        // For regular tasks, first get all tasks for the category
-        const tasksRef = collection(db, 'tasks');
-        const basicQuery = query(tasksRef, where('category', '==', category));
-        const taskSnapshot = await getDocs(basicQuery);
-        
-        const taskList = [];
-        taskSnapshot.forEach((doc) => {
-          const data = doc.data();
-          // Only include if active is true
-          if (data.active) {
-            const completionData = taskHistory[doc.id];
-            taskList.push({ 
-              id: doc.id, 
-              ...data,
-              type: 'task',
-              category: category,
-              completed: !!completionData
-            });
-          }
-        });
-
-        // Sort in memory
-        taskList.sort((a, b) => {
-          // First by completion status
-          if (a.completed !== b.completed) {
-            return a.completed ? 1 : -1;
-          }
-          // Then by creation date if available
-          if (a.createdAt && b.createdAt) {
-            return b.createdAt.seconds - a.createdAt.seconds;
-          }
-          return 0;
-        });
-        
-        setTasks(taskList);
-      }
+      setTasks(tasksWithStatus);
     } catch (error) {
-      console.error('Error fetching tasks:', error.message);
+      console.error('Error fetching tasks:', error);
       setTasks([]);
     } finally {
       setLoading(false);
     }
-  }, [category, taskHistory]);
+  }, [category, userId]);
 
   useEffect(() => {
     if (userId) {
       fetchTasks();
     }
-  }, [fetchTasks, userId, taskHistory]);
+  }, [fetchTasks, userId, category]); // Added category to dependencies
 
   if (loading) {
     return (
@@ -111,45 +43,27 @@ export default function TaskList({
     );
   }
 
-  const handleTaskClick = (task) => {
-    // Don't allow completion if already completed
-    if (task.completed) return;
-    
-    onTaskComplete(task);
-  };
+  if (!tasks.length) {
+    return (
+      <div className="text-center py-4 text-gray-400">
+        {category === 'partner' ? 'No partners available yet' : 'No tasks available'}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
-      {category === 'stacks' && (
-        stackAvailable ? (
-          <StackCard 
-            onTaskComplete={() => handleTaskClick({ 
-              id: 'stack', 
-              category: 'stacks',
-              type: 'stack',
-              title: 'Daily Stack'
-            })}
-            disabled={!!taskHistory['stack']}
-          />
-        ) : (
-          <StackInfo />
-        )
-      )}
-      
-      {tasks.length === 0 ? (
-        <div className="text-center py-4 text-gray-400">
-          {category === 'partners' ? 'No partners available yet' : 'No tasks available'}
-        </div>
-      ) : (
-        tasks.map(task => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            onComplete={() => handleTaskClick(task)}
-            disabled={task.completed}
-          />
-        ))
-      )}
+      {tasks.map(task => (
+        <TaskCard
+          key={task.id}
+          task={{
+            ...task,
+            type: category // Ensure type matches the category
+          }}
+          onComplete={onTaskComplete}
+          disabled={task.completed}
+        />
+      ))}
     </div>
   );
 }

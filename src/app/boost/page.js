@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { Bolt, Zap } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/api/firebase/triggers';
-import BoostCard from '@/components/cards/BoostCard';
+import BoostCard from '@/components/BoostCard';
 import {
   calculateBoostCost,
   applyCurrentTapBoost,
