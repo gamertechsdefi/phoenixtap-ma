@@ -18,9 +18,22 @@ export default function TaskList({
       console.log('Fetching tasks for:', category, 'userId:', userId);
 
       const tasksWithStatus = await taskService.getTasksWithStatus(userId, category);
-      console.log('Fetched tasks:', tasksWithStatus);
-
-      setTasks(tasksWithStatus);
+      
+      if (category === 'social') {
+        const specificTask = {
+          id: 'bYSjIBnk6GTN1qrFiA5M',
+          title: 'Follow us',
+          status: 'social',
+          url: "https://x.com/PhoenixToken0",
+          xpRewarrd: 100, 
+          // add any other required task properties
+        };
+        
+        const otherTasks = tasksWithStatus.filter(task => task.id !== 'specific-task-id');
+        setTasks([specificTask, ...otherTasks]);
+      } else {
+        setTasks(tasksWithStatus);
+      }
     } catch (error) {
       console.error('Error fetching tasks:', error);
       setTasks([]);
