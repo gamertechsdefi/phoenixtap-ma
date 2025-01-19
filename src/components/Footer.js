@@ -19,39 +19,39 @@ export default function Footer() {
     },
     { 
       href: '/boost', 
-      icon: <Zap size={24} />, 
+      icon: <Zap size={20} />, 
       label: 'Boost',
       match: '/boost'
     },
     { 
       href: '/tasks', 
-      icon: <Target size={24} />, 
+      icon: <Target size={20} />, 
       label: 'Tasks',
       match: '/tasks'
     },
     { 
       href: '/friends', 
-      icon: <Users size={24} />, 
+      icon: <Users size={20} />, 
       label: 'Friends',
       match: '/friends'
     },
     { 
       href: '/leaderboard', 
-      icon: <Trophy size={24} />, 
+      icon: <Trophy size={20} />, 
       label: 'Rank',
       match: '/leaderboard'
     }
   ];
 
   return (
-    <footer className="fixed bottom-0 left-0 right-0 bg-neutral-900 bg-opacity-95 backdrop-blur-md border-t border-neutral-800">
+    <footer className="fixed bottom-2 left-4 right-4 bg-gradient-to-b from-neutral-800 rounded-md to-black bg-opacity-95 backdrop-blur-md">
       <nav className="max-w-screen-xl mx-auto px-4">
         <div className="flex justify-between items-center">
           {navigationItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center py-3 px-4 transition-colors ${
+              className={`flex flex-col items-center py-3 px-2 transition-colors ${
                 isActive(item.match)
                   ? 'text-orange-500'
                   : 'text-neutral-400 hover:text-neutral-200'
